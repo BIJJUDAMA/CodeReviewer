@@ -1,0 +1,12 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install dependencies
+RUN pip install --no-cache-dir requests openai python-dotenv
+
+# Copy the test suite and inference logic
+COPY test_suite.py .
+
+# Environment variables can be passed at runtime using --env-file
+CMD ["python", "test_suite.py"]

@@ -31,7 +31,12 @@ Use the Docker validator to verify OpenEnv specification compliance:
 docker build -t openenv-validator -f Dockerfile.validator .
 docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "${PWD}:/repo" openenv-validator https://bijjudama-coderreviewer.hf.space .
 ```
+Use the Docker test to verify the multi-turn capability:
+```powershell
+docker build -t openenv-test -f Dockerfile.test .
 
+docker run --rm --env-file .env openenv-test
+```
 ## Repository Structure
 - `inference.py`: Agent implementation with task-aware persona logic.
 - `server/`: Environment server root (HF Space source).
