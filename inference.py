@@ -9,18 +9,8 @@ from typing import List, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Load .env file
-load_dotenv(override=True)
-
-# Environment Variables - PRIORITIZE validator variables strictly
-API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
-API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
-
-# Other environment variables
-PING_URL = (os.getenv("HF_SPACE_URL") or "http://localhost:7860").rstrip("/")
-TASK_NAME = os.getenv("CODE_REVIEW_TASK") or os.getenv("MY_ENV_V4_TASK") or os.getenv("TASK") or "identify_bug"
-BENCHMARK = os.getenv("BENCHMARK") or "code-review-env"
+# Do NOT override environment variables with .env - validator injects natively!
+load_dotenv(override=False)
 
 MAX_STEPS = 8
 TEMPERATURE = 0.7
@@ -56,19 +46,19 @@ def build_user_prompt(step: int, observation: dict, last_reward: float, history:
     desc = observation.get("task_description", "No description.")
     return f"Step: {step}\nTask: {desc}\nCode:\n{code}\nLast Reward: {last_reward:.2f}"
 
-def get_model_message(client: OpenAI, step: int, observation: dict, last_reward: float, history: List[str]) -> str:
+def get_model_message(client: OpenAI, model_name: str, step: int, observation: dict, last_reward: float, history: List[str]) -> str:
     system_prompt = get_system_prompt(observation.get("task_type", ""))
     try:
         user_prompt = build_user_prompt(step, observation, last_reward, history)
         completion = client.chat.completions.create(
-            model=MODEL_NAME,
+            model=model_name,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
             stream=False,
         )
         return (completion.choices[0].message.content or "").strip()
-    except:
+    except Exception as e:
         return "error"
 
 class RemoteEnv:
@@ -78,18 +68,23 @@ class RemoteEnv:
         try:
             resp = requests.post(f"{self.base_url}/reset", json={"task_type": task_type}, timeout=30)
             return resp.json() if resp.status_code == 200 else None
-        except:
+        except Exception as e:
             return None
     async def step(self, action_str: str):
         try:
             resp = requests.post(f"{self.base_url}/step", json={"response": action_str}, timeout=30)
             return resp.json() if resp.status_code == 200 else None
-        except:
+        except Exception as e:
             return None
 
 async def main() -> None:
-    # 1. Start Logging Immediately
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    # Resolve target environment dynamically at runtime
+    task_name = os.environ.get("CODE_REVIEW_TASK", os.environ.get("MY_ENV_V4_TASK", os.environ.get("TASK", "identify_bug")))
+    benchmark = os.environ.get("BENCHMARK", "code-review-env")
+    model_name = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+    
+    # 1. Start Logging Immediately 
+    log_start(task=task_name, env=benchmark, model=model_name)
     
     history: List[str] = []
     rewards: List[float] = []
@@ -98,19 +93,26 @@ async def main() -> None:
     success = False
 
     try:
-        if not API_KEY:
-            # We must log end even if we fail early
-            return
+        # EXACTLY match the validator's LLM Proxy injection
+        base_url = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
+        if not base_url:
+            base_url = "https://router.huggingface.co/v1"
+            
+        api_key = os.environ.get("API_KEY", os.environ.get("HF_TOKEN"))
+        if not api_key:
+            return # Must silently exit and log_end
 
-        # Initialize client with strict environment variables
+        # Initialize the OpenAI client precisely using the environment map
         client = OpenAI(
-            base_url=API_BASE_URL,
-            api_key=API_KEY
+            base_url=base_url,
+            api_key=api_key
         )
-        env = RemoteEnv(PING_URL)
+        
+        ping_url = (os.environ.get("HF_SPACE_URL") or "http://localhost:7860").rstrip("/")
+        env = RemoteEnv(ping_url)
 
         # Step 0: Reset
-        obs = await env.reset(TASK_NAME)
+        obs = await env.reset(task_name)
         if not obs:
             return
 
@@ -119,7 +121,7 @@ async def main() -> None:
 
         for step in range(1, MAX_STEPS + 1):
             if done: break
-            action_text = get_model_message(client, step, obs, last_reward, history)
+            action_text = get_model_message(client, model_name, step, obs, last_reward, history)
             result = await env.step(action_text)
             if not result or "observation" not in result: break
 
@@ -138,7 +140,7 @@ async def main() -> None:
         score = min(max(total_reward, 0.0), 1.0)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
-    except:
+    except Exception as e:
         pass
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
