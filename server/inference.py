@@ -26,19 +26,32 @@ BENCHMARK = "code-review-env"
 MAX_STEPS = 8
 SUCCESS_SCORE_THRESHOLD = 0.5
 
-SYSTEM_PROMPT = textwrap.dedent(
-    """
-    You are an expert Python code reviewer.
-    You will be given a code snippet that contains a bug or stylistic issue.
-    Your task is to identify the issue and provide a fix or analysis.
+def get_system_prompt(task_type: str) -> str:
+    """Returns a tailored system prompt based on the task type."""
+    base_expert = "You are an expert Python code reviewer."
     
-    If the task is 'identify_bug', respond with a single keyword representing the error type 
-    (e.g., IndexError, TypeError, ValueError, NameError, ZeroDivisionError).
+    if task_type == "security_audit":
+        return textwrap.dedent(f"""
+            {base_expert} You are a Cyber Security Professional.
+            Your mission is to find critical vulnerabilities like Command Injection or XSS.
+            Provide a SECURE fix using best practices (e.g., subprocess with shell=False).
+            """).strip()
     
-    If the task is 'suggest_fix' or 'full_review', provide a corrected version of the code in a 
-    markdown code block: ```python ... ```.
-    """
-).strip()
+    if task_type == "performance_refactor":
+        return textwrap.dedent(f"""
+            {base_expert} You are a Senior Performance Engineer.
+            Analyze algorithmic complexity (O(n^2), etc.) and provide an optimized refactor.
+            Prioritize efficient data structures like set() and dict() for linear time complexity.
+            """).strip()
+
+    return textwrap.dedent(f"""
+        {base_expert}
+        You will be given a code snippet that contains a bug or stylistic issue.
+        Identify the issue and provide a fix or analysis.
+        
+        If identify_bug: respond with a single keyword (e.g. IndexError).
+        If suggest_fix/full_review: provide corrected code in a ```python ... ``` block.
+        """).strip()
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
@@ -78,12 +91,12 @@ def build_user_prompt(step: int, observation: dict, last_reward: float, history:
     ).strip()
 
 def get_model_message(client: OpenAI, step: int, observation: dict, last_reward: float, history: List[str]) -> str:
-    user_prompt = build_user_prompt(step, observation, last_reward, history)
+    system_prompt = get_system_prompt(observation.get("task_type", ""))
     try:
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
             temperature=0.7,

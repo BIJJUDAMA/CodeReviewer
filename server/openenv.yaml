@@ -17,6 +17,12 @@ tasks:
     difficulty: hard
     max_steps: 8
     reward_range: [0.0, 1.0]
+  - name: security-audit
+    max_steps: 6
+    reward_range: [0.0, 1.0]
+  - name: performance-refactor
+    max_steps: 6
+    reward_range: [0.0, 1.0]
 action_space:
   type: text
   description: Free-form string response from the agent
