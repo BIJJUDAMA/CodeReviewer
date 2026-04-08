@@ -12,90 +12,49 @@ from dotenv import load_dotenv
 # Load .env file
 load_dotenv(override=True)
 
-# Environment Variables
-# Defaults are set ONLY for API_BASE_URL and MODEL_NAME (per checklist)
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1").strip()
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct").strip()
+# Environment Variables - Use 'or' pattern to handle empty strings
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 HF_TOKEN = os.getenv("HF_TOKEN")
 API_KEY = HF_TOKEN or os.getenv("API_KEY")
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "coder-reviewer-env")
+PING_URL = (os.getenv("HF_SPACE_URL") or "http://localhost:7860").rstrip("/")
+TASK_NAME = os.getenv("CODE_REVIEW_TASK") or os.getenv("MY_ENV_V4_TASK") or os.getenv("TASK") or "identify_bug"
+BENCHMARK = os.getenv("BENCHMARK") or "code-review-env"
 
-# Target Environment Configuration
-PING_URL = os.getenv("HF_SPACE_URL", "http://localhost:7860").rstrip("/")
-TASK_NAME = os.getenv("CODE_REVIEW_TASK", "identify_bug")
-BENCHMARK = "code-review-env"
 MAX_STEPS = 8
 TEMPERATURE = 0.7
 MAX_TOKENS = 1000
 SUCCESS_SCORE_THRESHOLD = 0.5
 
 def get_system_prompt(task_type: str) -> str:
-    """Returns a tailored system prompt based on the task type."""
     base_expert = "You are an expert Python code reviewer."
-    
     if task_type == "security_audit":
-        return textwrap.dedent(f"""
-            {base_expert} You are a Cyber Security Professional.
-            Your mission is to find critical vulnerabilities like Command Injection or XSS.
-            Provide a SECURE fix using best practices (e.g., subprocess with shell=False).
-            """).strip()
-    
+        return textwrap.dedent(f"{base_expert} You are a Cyber Security Professional. Find vulnerabilities like Command Injection. Provide a SECURE fix.").strip()
     if task_type == "performance_refactor":
-        return textwrap.dedent(f"""
-            {base_expert} You are a Senior Performance Engineer.
-            Analyze algorithmic complexity (O(n^2), etc.) and provide an optimized refactor.
-            Prioritize efficient data structures like set() and dict() for linear time complexity.
-            """).strip()
-
-    return textwrap.dedent(f"""
-        {base_expert}
-        You will be given a code snippet that contains a bug or stylistic issue.
-        Identify the issue and provide a fix or analysis.
-        
-        If identify_bug: respond with EXACTLY ONE keyword (e.g. IndexError). Do NOT explain. Do NOT add periods.
-        If suggest_fix/full_review: provide corrected code in a ```python ... ``` block.
-        """).strip()
+        return textwrap.dedent(f"{base_expert} You are a Senior Performance Engineer. Optimize algorithmic complexity.").strip()
+    return textwrap.dedent(f"{base_expert} Provide a fix or analysis for the bug.").strip()
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
-
+    sys.stdout.flush()
 
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
     done_val = str(done).lower()
-    # Normalize action for logging (remove newlines)
     action_clean = action.replace("\n", " ")
-    # Using double space after [STEP] to match mandatory spec alignment
-    print(
-        f"[STEP]  step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
-        flush=True,
-    )
-
+    print(f"[STEP] step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
+    sys.stdout.flush()
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    # Using triple space after [END] to match mandatory spec alignment
-    print(f"[END]   success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
+    # Using .3f for score to match user provided sample exactly
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    sys.stdout.flush()
 
 def build_user_prompt(step: int, observation: dict, last_reward: float, history: List[str]) -> str:
     code = observation.get("code_snippet", "No code provided.")
     desc = observation.get("task_description", "No description.")
-    
-    return textwrap.dedent(
-        f"""
-        Step: {step}
-        Task Description: {desc}
-        Code Snippet:
-        ```python
-        {code}
-        ```
-        Last Reward: {last_reward:.2f}
-        Previous turns:
-        {" | ".join(history[-3:]) if history else "Start of episode"}
-        
-        Analyze the code and provide your response.
-        """
-    ).strip()
+    return f"Step: {step}\nTask: {desc}\nCode:\n{code}\nLast Reward: {last_reward:.2f}"
 
 def get_model_message(client: OpenAI, step: int, observation: dict, last_reward: float, history: List[str]) -> str:
     system_prompt = get_system_prompt(observation.get("task_type", ""))
@@ -103,38 +62,35 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
         user_prompt = build_user_prompt(step, observation, last_reward, history)
         completion = client.chat.completions.create(
             model=MODEL_NAME,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
             stream=False,
         )
         return (completion.choices[0].message.content or "").strip()
-    except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", file=sys.stderr, flush=True)
+    except:
         return "error"
 
 class RemoteEnv:
-    """Helper to interact with the remote OpenEnv Space."""
     def __init__(self, base_url: str):
         self.base_url = base_url
-
     async def reset(self, task_type: str):
-        resp = requests.post(f"{self.base_url}/reset", json={"task_type": task_type}, timeout=30)
-        resp.raise_for_status()
-        return resp.json()
-
+        try:
+            resp = requests.post(f"{self.base_url}/reset", json={"task_type": task_type}, timeout=30)
+            return resp.json() if resp.status_code == 200 else None
+        except:
+            return None
     async def step(self, action_str: str):
-        # The environment expects the field name 'response'
-        resp = requests.post(f"{self.base_url}/step", json={"response": action_str}, timeout=30)
-        if resp.status_code != 200:
-            print(f"[DEBUG] Step failed: {resp.status_code} - {resp.text}", file=sys.stderr, flush=True)
-        resp.raise_for_status()
-        return resp.json()
+        try:
+            resp = requests.post(f"{self.base_url}/step", json={"response": action_str}, timeout=30)
+            return resp.json() if resp.status_code == 200 else None
+        except:
+            return None
 
 async def main() -> None:
+    # 1. Start Logging Immediately
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
@@ -143,38 +99,24 @@ async def main() -> None:
 
     try:
         if not API_KEY:
-            print("[ERROR] Neither HF_TOKEN nor API_KEY found in environment.", file=sys.stderr, flush=True)
             return
 
-        # Initialize clients inside try block
         client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
         env = RemoteEnv(PING_URL)
-
-        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
 
         # Step 0: Reset
         obs = await env.reset(TASK_NAME)
         if not obs:
-            print("[ERROR] Environment reset returned empty observation.", file=sys.stderr, flush=True)
             return
 
         last_reward = 0.0
         done = False
 
         for step in range(1, MAX_STEPS + 1):
-            if done:
-                break
-
-            # Step 1: Get action from model
+            if done: break
             action_text = get_model_message(client, step, obs, last_reward, history)
-
-            # Step 2: Push action to environment
             result = await env.step(action_text)
-            
-            # Step 3: Extract results
-            if not result or "observation" not in result:
-                print(f"[ERROR] Invalid step result at step {step}: {result}", file=sys.stderr, flush=True)
-                break
+            if not result or "observation" not in result: break
 
             obs = result["observation"]
             reward = float(result.get("reward", 0.0))
@@ -184,24 +126,15 @@ async def main() -> None:
             rewards.append(reward)
             steps_taken = step
             last_reward = reward
-
-            # Step 4: Log step (clean action for log)
             log_step(step=step, action=action_text, reward=reward, done=done, error=error)
+            if done: break
 
-            history.append(f"Q: {TASK_NAME} R: {reward}")
-
-            if done:
-                break
-
-        # Calculate final metrics
         total_reward = sum(rewards)
-        # Assuming max reward is 1.0 for these tasks
         score = min(max(total_reward, 0.0), 1.0)
         success = score >= SUCCESS_SCORE_THRESHOLD
 
-    except Exception as e:
-        print(f"[DEBUG] Runtime error: {e}", file=sys.stderr, flush=True)
-        traceback.print_exc(file=sys.stderr)
+    except:
+        pass
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
