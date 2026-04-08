@@ -1,8 +1,21 @@
+import uvicorn
 from fastapi import FastAPI, Request, Body
-from server.env import CodeReviewEnv, CodeReviewAction
+from env import CodeReviewEnv, CodeReviewAction
 from typing import Optional
+from dotenv import load_dotenv
+
+# Load .env file
+load_dotenv()
 
 app = FastAPI(title="OpenEnv Code Review Environment")
+
+@app.get("/")
+async def root():
+    return {
+        "message": "OpenEnv Code Review Server is Running!",
+        "status": "healthy",
+        "documentation": "/docs"
+    }
 
 # Global environment instance
 env = CodeReviewEnv()
@@ -43,3 +56,10 @@ async def health():
     Health check for HF Spaces.
     """
     return {"status": "ok"}
+
+def main():
+    """Entry point for the OpenEnv server."""
+    uvicorn.run("app:app", host="0.0.0.0", port=7860, reload=False)
+
+if __name__ == "__main__":
+    main()

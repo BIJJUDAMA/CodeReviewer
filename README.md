@@ -1,60 +1,55 @@
-# OpenEnv Code Review Environment
+# OpenEnv Code Review
 
-## What it does
-OpenEnv Code Review is an AI agent training environment designed to evaluate an agent's ability to identify bugs, suggest fixes, and provide structured code reviews for Python snippets.
+OpenEnv Code Review is an evaluation environment designed for AI agents to perform automated code review tasks. It provides a standardized interface for agents to identify bugs, suggest fixes, and perform comprehensive code analysis across a variety of Python snippets.
 
-## Why it matters
-Code review is a fundamental skill for developers. This environment provides a deterministic, reproducible way to score agents on these tasks without requiring a "Human-in-the-loop" or "LLM-in-the-loop" grader.
+## Features
 
-## Action Space
-- **Type:** Text
-- **Format:** Free-form response from the agent containing bug identification or corrected code blocks.
+- **Automated Grading**: Deterministic evaluation using test-case execution and pattern matching.
+- **standardized Interface**: Implements the OpenEnv specification for Observation, Action, and Reward.
+- **Multi-Mode Deployment**: Fully compliant with professional environment validation suites.
+- **Production Ready**: Deployed on Hugging Face Spaces using the Docker SDK.
 
-## Observation Space
-- `code_snippet`: The broken Python code.
-- `language`: "python".
-- `task_type`: "identify_bug" | "suggest_fix" | "full_review".
-- `task_description`: Instructions for the task.
-- `step_number`: Current step in the episode.
-- `max_steps`: Total allowed steps.
-- `context`: Optional usage hint.
+## Environment Configuration
 
-## Tasks
-1. **identify_bug (Easy):** Identify the bug category. (Max steps: 4)
-2. **suggest_fix (Medium):** Provide corrected code that passes tests. (Max steps: 6)
-3. **full_review (Hard):** Complete review (ID + Fix + Style). (Max steps: 8)
+Before running the agent or the environment, ensure the following environment variables are set in a `.env` file or exported to your shell:
 
-## Reward Function
-- **Identify Bug:** Binary (1.0/0.0) with partial credit (0.4) for related terms. Rewards faster responses with step-decay.
-- **Suggest Fix:** Based on the ratio of hidden test cases passed.
-- **Full Review:** Weighted sum: 40% Bug ID, 35% Fix, 25% Style Notes.
-
-## Setup
-
-### Local (Docker)
-1. Build the image: `docker build -t code-review-env server/`
-2. Run the container: `docker run -p 7860:7860 code-review-env`
-
-### Hugging Face Spaces
-Deploy using the Docker SDK option and expose port 7860.
-
-## Running Inference
-Set your environment variables and run:
 ```bash
-export OPEN_AI_API_KEY="your-key"
-export CODE_REVIEW_TASK="full_review"
+# LLM Endpoint Configuration
+API_BASE_URL=https://router.huggingface.co/v1
+MODEL_NAME=deepseek-ai/DeepSeek-R1
+
+# Authentication
+HF_TOKEN=your_huggingface_token_here
+
+# Local Server Connectivity (Optional)
+HF_SPACE_URL=https://bijjudama-coderreviewer.hf.space
+```
+
+## Local Execution
+
+### 1. Running the Agent
+The main agent logic is contained in `inference.py`. It requires the `openai` and `python-dotenv` libraries.
+
+```bash
 python inference.py
 ```
 
-## Baseline scores
-| Task | Model | Score |
-|------|-------|-------|
-| identify_bug | Qwen2.5-72B | 0.82 |
-| suggest_fix  | Qwen2.5-72B | 0.61 |
-| full_review  | Qwen2.5-72B | 0.54 |
+### 2. Validation
+To verify the environment against the OpenEnv specification, run the validation script:
 
-## Environment Variables
-- `HF_SPACE_URL`: URL of the environment server (Default: `http://localhost:7860`)
-- `CODE_REVIEW_TASK`: Type of task to run (`identify_bug`, `suggest_fix`, `full_review`)
-- `OPEN_AI_API_KEY`: API key for the model provider.
-- `MODEL_NAME`: Model name to evaluate.
+```bash
+bash validate-submission.sh https://bijjudama-coderreviewer.hf.space .
+```
+
+## Repository Structure
+
+- `inference.py`: Primary agent implementation following mandatory logging formats.
+- `server/`: Root directory for the environment server.
+- `server/app.py`: FastAPI implementation with mandatory `main()` entry point.
+- `server/Dockerfile`: Container specification for Hugging Face Spaces.
+- `openenv.yaml`: Environment metadata and configuration.
+- `pyproject.toml`: Project build and dependency specification.
+- `uv.lock`: Dependency lockfile for reproducible builds.
+
+## Deployment
+The environment is designed to run as a Docker-based Hugging Face Space. All server logic, including graders and task datasets, is contained within the `server/` directory.

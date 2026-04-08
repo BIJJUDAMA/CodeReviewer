@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-code-review"
+version = "0.1.0"
+description = "OpenEnv Code Review Environment for Scaler Hackathon"
+authors = [
+    {name = "BIJJUDAMA"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "pydantic",
+    "requests",
+    "openai",
+    "python-dotenv",
+    "openenv-core>=0.2.0"
+]
+
+[project.scripts]
+server = "app:main"
+
+[tool.setuptools]
+py-modules = ["app"]
+packages = ["graders", "tasks"]

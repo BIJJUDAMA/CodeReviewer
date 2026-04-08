@@ -1,8 +1,9 @@
 from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel
 from dataclasses import dataclass, field
-from server.tasks import dataset
-from server.graders import identify_bug, suggest_fix, full_review
+from tasks import dataset
+from graders import identify_bug, suggest_fix, full_review
+import random
 
 # Pydantic Models for OpenEnv Compliance
 
@@ -125,4 +126,3 @@ class CodeReviewEnv:
             "rewards": self.state.rewards
         }
 
-import random # Needed for picking random task in reset

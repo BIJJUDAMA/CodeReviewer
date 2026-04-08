@@ -1,4 +1,4 @@
-from server.graders import identify_bug, suggest_fix
+from . import identify_bug, suggest_fix
 
 WEIGHTS = {"bug": 0.40, "fix": 0.35, "style": 0.25}
 

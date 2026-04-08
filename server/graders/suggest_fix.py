@@ -102,7 +102,7 @@ except Exception as e:
         
     return results
 
-def score(agent_response: str, ground_truth: dict) -> float:
+def score(agent_response: str, ground_truth: dict, step: int = 1) -> float:
     code = extract_code_block(agent_response)
     if not code:
         return 0.0
