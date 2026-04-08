@@ -5,25 +5,15 @@ import textwrap
 import traceback
 from typing import List, Optional
 from openai import OpenAI
-from dotenv import load_dotenv
 
 # Ensure local imports inside 'server' work from the root directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "server")))
 from env import CodeReviewEnv, CodeReviewAction
 
-load_dotenv(override=True)
 
-if "API_BASE_URL" not in os.environ:
-    os.environ["API_BASE_URL"] = "https://router.huggingface.co/v1"
-if "API_KEY" not in os.environ:
-    os.environ["API_KEY"] = os.getenv("HF_TOKEN", "")
-if "MODEL_NAME" not in os.environ:
-    os.environ["MODEL_NAME"] = "Qwen/Qwen2.5-72B-Instruct"
-
-# Retrieve for other uses if needed
-MODEL_NAME = os.environ["MODEL_NAME"]
 TASK_NAME = os.getenv("CODE_REVIEW_TASK", os.getenv("TASK", "identify_bug"))
 BENCHMARK = os.getenv("BENCHMARK", "code-review-env")
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 
 MAX_STEPS = 8
 TEMPERATURE = 0.7
@@ -52,16 +42,12 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 def build_user_prompt(step: int, observation: dict, last_reward: float, history: List[str]) -> str:
-    # Handle both old dict observation and pydantic observation
     if hasattr(observation, 'code_snippet'):
         code = observation.code_snippet
         desc = observation.task_description
-        task_type = observation.task_type
     else:
         code = observation.get("code_snippet", "No code provided.")
         desc = observation.get("task_description", "No description.")
-        task_type = observation.get("task_type", "")
-        
     return f"Step: {step}\nTask: {desc}\nCode:\n{code}\nLast Reward: {last_reward:.2f}"
 
 def get_model_message(client: OpenAI, step: int, observation: dict, last_reward: float, history: List[str]) -> str:
@@ -95,14 +81,14 @@ async def main() -> None:
     success = False
 
     try:
-        # STRICT ADHERENCE TO VALIDATOR INSTRUCTIONS
+        # MANDATORY: STRICT ADHERENCE TO os.environ PATTERN
+        # We purposely do not use defaults here. If they are missing, the script will crash with a KeyError,
+        # which informs the validator that the environment isn't set up correctly.
         client = OpenAI(
             base_url=os.environ["API_BASE_URL"],
             api_key=os.environ["API_KEY"]
         )
         
-        # Instantiate environment LOCALLY instead of using Remote HTTP calls
-        # This prevents "runs completed successfully but no API calls" due to localhost not running
         env = CodeReviewEnv()
 
         obs = env.reset(TASK_NAME)
@@ -120,11 +106,6 @@ async def main() -> None:
             action = CodeReviewAction(response=action_text)
             
             result = env.step(action)
-            
-            if not result or not hasattr(result, 'observation'):
-                print("[ERROR] Environment step returned invalid result.", file=sys.stderr, flush=True)
-                break
-
             obs = result.observation
             reward = float(result.reward)
             done = bool(result.done)
