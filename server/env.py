@@ -50,7 +50,9 @@ class CodeReviewEnv:
         max_steps_map = {
             "identify_bug": 4,
             "suggest_fix": 6,
-            "full_review": 8
+            "full_review": 8,
+            "security_audit": 6,
+            "performance_refactor": 6
         }
         
         self.state = EnvState(
@@ -73,7 +75,9 @@ class CodeReviewEnv:
         grader_map = {
             "identify_bug": identify_bug,
             "suggest_fix": suggest_fix,
-            "full_review": full_review
+            "full_review": full_review,
+            "security_audit": security_audit,
+            "performance_refactor": performance_refactor
         }
         
         grader = grader_map.get(self.state.task_type)
@@ -103,7 +107,9 @@ class CodeReviewEnv:
         task_desc_map = {
             "identify_bug": "Identify the type of bug in this code snippet.",
             "suggest_fix": "Provide a fixed version of this code snippet including the function definition.",
-            "full_review": "Provide a full code review including bug identification, a fix, and style notes."
+            "full_review": "Provide a full code review including bug identification, a fix, and style notes.",
+            "security_audit": "Perform a security audit. Identify the vulnerability (e.g. Command Injection) and provide a secure fix.",
+            "performance_refactor": "Analyze the performance bottleneck (e.g. O(n^2) complexity) and provide an optimized refactor."
         }
         
         return CodeReviewObservation(
