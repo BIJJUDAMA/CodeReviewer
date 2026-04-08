@@ -22,12 +22,17 @@ if "API_BASE_URL" in os.environ:
     if not base_url.endswith("/v1"):
         os.environ["API_BASE_URL"] = base_url + "/v1"
 else:
-    # Safe fallback if missing entirely
     os.environ["API_BASE_URL"] = "https://router.huggingface.co/v1"
 
-# 3. MODEL_NAME Fix (The cause of the recent crash)
+# 3. MODEL_NAME Fix
 if "MODEL_NAME" not in os.environ or not os.environ["MODEL_NAME"]:
     os.environ["MODEL_NAME"] = "Qwen/Qwen2.5-72B-Instruct"
+
+# 4. PROXY Fix - Resolves "unexpected keyword argument 'proxies'"
+os.environ.pop("HTTP_PROXY", None)
+os.environ.pop("HTTPS_PROXY", None)
+os.environ.pop("http_proxy", None)
+os.environ.pop("https_proxy", None)
 
 # ---------------------------------------------------------
 # Script Constants
@@ -80,7 +85,6 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
     system_prompt = get_system_prompt(task_type)
     user_prompt = build_user_prompt(step, observation, last_reward, history)
     
-    # Using the strict MODEL_NAME from environment
     completion = client.chat.completions.create(
         model=os.environ["MODEL_NAME"],
         messages=[
@@ -94,9 +98,8 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
     return (completion.choices[0].message.content or "").strip()
 
 async def main() -> None:
-    # Explicitly log environment to stderr so we can debug if it explodes
+    # Diagnostic Logs
     print(f"DEBUG: Using API_BASE_URL={os.environ.get('API_BASE_URL')}", file=sys.stderr)
-    print(f"DEBUG: Using API_KEY PRESENT: {'API_KEY' in os.environ}", file=sys.stderr)
     print(f"DEBUG: Using MODEL_NAME={os.environ.get('MODEL_NAME')}", file=sys.stderr)
 
     log_start(task=TASK_NAME, env=BENCHMARK, model=os.environ["MODEL_NAME"])
