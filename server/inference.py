@@ -9,8 +9,19 @@ from typing import List, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
 
-# Do NOT override environment variables with .env - validator injects natively!
-load_dotenv(override=False)
+load_dotenv(override=True)
+
+# ---------------------------------------------------------
+# Exact matches to the sample script environment variables
+# ---------------------------------------------------------
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "coder-reviewer-env")
+API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
+API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
+MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
+TASK_NAME = os.getenv("CODE_REVIEW_TASK", os.getenv("TASK", "identify_bug"))
+BENCHMARK = os.getenv("BENCHMARK", "code-review-env")
+
+PING_URL = (os.getenv("HF_SPACE_URL") or "http://localhost:7860").rstrip("/")
 
 MAX_STEPS = 8
 TEMPERATURE = 0.7
@@ -46,12 +57,12 @@ def build_user_prompt(step: int, observation: dict, last_reward: float, history:
     desc = observation.get("task_description", "No description.")
     return f"Step: {step}\nTask: {desc}\nCode:\n{code}\nLast Reward: {last_reward:.2f}"
 
-def get_model_message(client: OpenAI, model_name: str, step: int, observation: dict, last_reward: float, history: List[str]) -> str:
+def get_model_message(client: OpenAI, step: int, observation: dict, last_reward: float, history: List[str]) -> str:
     system_prompt = get_system_prompt(observation.get("task_type", ""))
     try:
         user_prompt = build_user_prompt(step, observation, last_reward, history)
         completion = client.chat.completions.create(
-            model=model_name,
+            model=MODEL_NAME,
             messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
             temperature=TEMPERATURE,
             max_tokens=MAX_TOKENS,
@@ -59,6 +70,9 @@ def get_model_message(client: OpenAI, model_name: str, step: int, observation: d
         )
         return (completion.choices[0].message.content or "").strip()
     except Exception as e:
+        # Print actual error to stderr so we can see why LLM failed
+        print(f"[ERROR] LLM generation failed: {e}", file=sys.stderr, flush=True)
+        sys.stderr.flush()
         return "error"
 
 class RemoteEnv:
@@ -67,24 +81,25 @@ class RemoteEnv:
     async def reset(self, task_type: str):
         try:
             resp = requests.post(f"{self.base_url}/reset", json={"task_type": task_type}, timeout=30)
-            return resp.json() if resp.status_code == 200 else None
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
+            print(f"[ERROR] RemoteEnv reset failed for {self.base_url}: {e}", file=sys.stderr, flush=True)
+            sys.stderr.flush()
             return None
     async def step(self, action_str: str):
         try:
             resp = requests.post(f"{self.base_url}/step", json={"response": action_str}, timeout=30)
-            return resp.json() if resp.status_code == 200 else None
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
+            print(f"[ERROR] RemoteEnv step failed: {e}", file=sys.stderr, flush=True)
+            sys.stderr.flush()
             return None
 
 async def main() -> None:
-    # Resolve target environment dynamically at runtime
-    task_name = os.environ.get("CODE_REVIEW_TASK", os.environ.get("MY_ENV_V4_TASK", os.environ.get("TASK", "identify_bug")))
-    benchmark = os.environ.get("BENCHMARK", "code-review-env")
-    model_name = os.environ.get("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-    
-    # 1. Start Logging Immediately 
-    log_start(task=task_name, env=benchmark, model=model_name)
+    # Always log start regardless of what happens next
+    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
     
     history: List[str] = []
     rewards: List[float] = []
@@ -93,27 +108,23 @@ async def main() -> None:
     success = False
 
     try:
-        # EXACTLY match the validator's LLM Proxy injection
-        base_url = os.environ.get("API_BASE_URL", "https://router.huggingface.co/v1")
-        if not base_url:
-            base_url = "https://router.huggingface.co/v1"
-            
-        api_key = os.environ.get("API_KEY", os.environ.get("HF_TOKEN"))
-        if not api_key:
-            return # Must silently exit and log_end
+        if not API_KEY:
+            print("[ERROR] API_KEY not found", file=sys.stderr, flush=True)
+            sys.stderr.flush()
+            return
 
-        # Initialize the OpenAI client precisely using the environment map
         client = OpenAI(
-            base_url=base_url,
-            api_key=api_key
+            base_url=API_BASE_URL,
+            api_key=API_KEY
         )
         
-        ping_url = (os.environ.get("HF_SPACE_URL") or "http://localhost:7860").rstrip("/")
-        env = RemoteEnv(ping_url)
+        env = RemoteEnv(PING_URL)
 
         # Step 0: Reset
-        obs = await env.reset(task_name)
+        obs = await env.reset(TASK_NAME)
         if not obs:
+            print("[ERROR] Could not reset environment, exiting early.", file=sys.stderr, flush=True)
+            sys.stderr.flush()
             return
 
         last_reward = 0.0
@@ -121,9 +132,12 @@ async def main() -> None:
 
         for step in range(1, MAX_STEPS + 1):
             if done: break
-            action_text = get_model_message(client, model_name, step, obs, last_reward, history)
+            action_text = get_model_message(client, step, obs, last_reward, history)
             result = await env.step(action_text)
-            if not result or "observation" not in result: break
+            if not result or "observation" not in result: 
+                print("[ERROR] Environment step returned invalid result.", file=sys.stderr, flush=True)
+                sys.stderr.flush()
+                break
 
             obs = result["observation"]
             reward = float(result.get("reward", 0.0))
@@ -141,7 +155,9 @@ async def main() -> None:
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
-        pass
+        print(f"[ERROR] Unhandled exception in main: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
+        sys.stderr.flush()
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
