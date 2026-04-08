@@ -3,6 +3,7 @@ import sys
 import asyncio
 import textwrap
 import traceback
+import httpx
 from typing import List, Optional
 from openai import OpenAI
 
@@ -28,7 +29,7 @@ else:
 if "MODEL_NAME" not in os.environ or not os.environ["MODEL_NAME"]:
     os.environ["MODEL_NAME"] = "Qwen/Qwen2.5-72B-Instruct"
 
-# 4. PROXY Fix - Resolves "unexpected keyword argument 'proxies'"
+# 4. PROXY Fix
 os.environ.pop("HTTP_PROXY", None)
 os.environ.pop("HTTPS_PROXY", None)
 os.environ.pop("http_proxy", None)
@@ -111,10 +112,11 @@ async def main() -> None:
     success = False
 
     try:
-        # MANDATORY: THE EXACT LITERAL STRING THEY ASK FOR
+        # BYPASSING BROKEN INTERNAL NETWORKING
         client = OpenAI(
             base_url=os.environ["API_BASE_URL"],
-            api_key=os.environ["API_KEY"]
+            api_key=os.environ["API_KEY"],
+            http_client=httpx.Client()
         )
         
         env = CodeReviewEnv()

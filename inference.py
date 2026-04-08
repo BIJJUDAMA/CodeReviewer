@@ -3,14 +3,13 @@ import sys
 import asyncio
 import textwrap
 import traceback
+import httpx 
 from typing import List, Optional
 from openai import OpenAI
 
 # Ensure local imports inside 'server' work from the root directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "server")))
 from env import CodeReviewEnv, CodeReviewAction
-
-
 
 # 1. API_KEY Fix
 if "API_KEY" not in os.environ and "HF_TOKEN" in os.environ:
@@ -28,9 +27,7 @@ else:
 if "MODEL_NAME" not in os.environ or not os.environ["MODEL_NAME"]:
     os.environ["MODEL_NAME"] = "Qwen/Qwen2.5-72B-Instruct"
 
-# 4. PROXY Fix - Resolves "unexpected keyword argument 'proxies'"
-# This error happens when the environment has proxy variables that the 
-# OpenAI client's internal httpx wrapper tries to use in an incompatible way.
+# 4. PROXY Fix - Cleans environment for the manual client
 os.environ.pop("HTTP_PROXY", None)
 os.environ.pop("HTTPS_PROXY", None)
 os.environ.pop("http_proxy", None)
@@ -113,11 +110,13 @@ async def main() -> None:
     success = False
 
     try:
-        # MANDATORY: THE EXACT LITERAL STRING THEY ASK FOR
-        # base_url and api_key are read from os.environ which we fixed in Pre-flight.
+        # BYPASSING BROKEN INTERNAL NETWORKING
+        # Providing an explicit http_client prevents the library from trying to 
+        # use its own SyncHttpxClientWrapper which is crashing on the 'proxies' argument.
         client = OpenAI(
             base_url=os.environ["API_BASE_URL"],
-            api_key=os.environ["API_KEY"]
+            api_key=os.environ["API_KEY"],
+            http_client=httpx.Client()
         )
         
         env = CodeReviewEnv()
