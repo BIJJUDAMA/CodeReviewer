@@ -87,6 +87,10 @@ class CodeReviewEnv:
             step=self.state.step_number
         )
         
+        # ENSURE STRICT RANGE (0, 1) per validator requirement
+        # This maps any [0, 1] input to [0.01, 0.99]
+        reward = max(0.01, min(0.99, float(reward)))
+        
         self.state.rewards.append(reward)
         self.state.step_number += 1
         

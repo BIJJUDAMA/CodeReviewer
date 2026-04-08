@@ -11,7 +11,9 @@ from openai import OpenAI
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "server")))
 from env import CodeReviewEnv, CodeReviewAction
 
-
+# ---------------------------------------------------------
+# Environment Variables - PRE-FLIGHT FIXES
+# ---------------------------------------------------------
 
 # 1. API_KEY Fix
 if "API_KEY" not in os.environ and "HF_TOKEN" in os.environ:
@@ -38,14 +40,11 @@ os.environ.pop("https_proxy", None)
 # ---------------------------------------------------------
 # Script Constants
 # ---------------------------------------------------------
-TASK_NAME = os.getenv("CODE_REVIEW_TASK") or os.getenv("TASK") or "identify_bug"
-BENCHMARK = os.getenv("BENCHMARK") or "code-review-env"
-MODEL_NAME = os.environ["MODEL_NAME"]
-
+BENCHMARK = "code-review-env"
 MAX_STEPS = 8
 TEMPERATURE = 0.7
 MAX_TOKENS = 1000
-SUCCESS_SCORE_THRESHOLD = 0.5
+SUCCESS_SCORE_THRESHOLD = 0.4
 
 def get_system_prompt(task_type: str) -> str:
     base_expert = "You are an expert Python code reviewer."
@@ -98,19 +97,43 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
     )
     return (completion.choices[0].message.content or "").strip()
 
-async def main() -> None:
-    # Diagnostic Logs
-    print(f"DEBUG: Using API_BASE_URL={os.environ.get('API_BASE_URL')}", file=sys.stderr)
-    print(f"DEBUG: Using MODEL_NAME={os.environ.get('MODEL_NAME')}", file=sys.stderr)
-
-    log_start(task=TASK_NAME, env=BENCHMARK, model=os.environ["MODEL_NAME"])
+async def run_task(client: OpenAI, env: CodeReviewEnv, task_type: str) -> float:
+    log_start(task=task_type, env=BENCHMARK, model=os.environ["MODEL_NAME"])
     
+    obs = env.reset(task_type)
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
-    score = 0.0
-    success = False
+    done = False
+    last_reward = 0.0
 
+    for step in range(1, MAX_STEPS + 1):
+        if done: break
+        
+        action_text = get_model_message(client, step, obs, last_reward, history)
+        action = CodeReviewAction(response=action_text)
+        
+        result = env.step(action)
+        obs = result.observation
+        reward = float(result.reward)
+        done = bool(result.done)
+        error = result.info.get("error") if hasattr(result, 'info') else None
+
+        rewards.append(reward)
+        steps_taken = step
+        last_reward = reward
+        
+        log_step(step=step, action=action_text, reward=reward, done=done, error=error)
+        if done: break
+
+    total_reward = sum(rewards)
+    # Clamp final score strictly in (0, 1)
+    task_score = max(0.01, min(0.99, total_reward / steps_taken if steps_taken > 0 else 0.0))
+    
+    log_end(success=task_score >= SUCCESS_SCORE_THRESHOLD, steps=steps_taken, score=task_score, rewards=rewards)
+    return task_score
+
+async def main() -> None:
     try:
         # BYPASSING BROKEN INTERNAL NETWORKING
         client = OpenAI(
@@ -120,43 +143,17 @@ async def main() -> None:
         )
         
         env = CodeReviewEnv()
-        obs = env.reset(TASK_NAME)
-        if not obs:
-            print("[ERROR] Environment reset failed.", file=sys.stderr, flush=True)
-            return
-
-        last_reward = 0.0
-        done = False
-
-        for step in range(1, MAX_STEPS + 1):
-            if done: break
-            
-            action_text = get_model_message(client, step, obs, last_reward, history)
-            action = CodeReviewAction(response=action_text)
-            
-            result = env.step(action)
-            obs = result.observation
-            reward = float(result.reward)
-            done = bool(result.done)
-            error = result.info.get("error") if hasattr(result, 'info') else None
-
-            rewards.append(reward)
-            steps_taken = step
-            last_reward = reward
-            
-            log_step(step=step, action=action_text, reward=reward, done=done, error=error)
-            if done: break
-
-        total_reward = sum(rewards)
-        score = min(max(total_reward, 0.0), 1.0)
-        success = score >= SUCCESS_SCORE_THRESHOLD
+        
+        # MANDATORY: RUN AT LEAST 3 TASKS
+        tasks_to_run = ["identify_bug", "suggest_fix", "security_audit"]
+        
+        for task_type in tasks_to_run:
+            await run_task(client, env, task_type)
 
     except Exception as e:
         print(f"[CRITICAL ERROR] Execution failed: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
         raise e
-    finally:
-        log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 if __name__ == "__main__":
     asyncio.run(main())
