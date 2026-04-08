@@ -3,6 +3,8 @@ import asyncio
 import textwrap
 import requests
 import json
+import sys
+import traceback
 from typing import List, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -15,10 +17,8 @@ load_dotenv(override=True)
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1").strip()
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct").strip()
 HF_TOKEN = os.getenv("HF_TOKEN")
+API_KEY = HF_TOKEN or os.getenv("API_KEY")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "coder-reviewer-env")
-
-# Use HF_TOKEN as the API Key for the Hugging Face Router
-API_KEY = HF_TOKEN
 
 # Target Environment Configuration
 PING_URL = os.getenv("HF_SPACE_URL", "http://localhost:7860").rstrip("/")
@@ -59,19 +59,23 @@ def get_system_prompt(task_type: str) -> str:
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
+
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
     done_val = str(done).lower()
     # Normalize action for logging (remove newlines)
-    action_clean = action.replace("\n", " ")[:50] + "..." if len(action) > 50 else action.replace("\n", " ")
+    action_clean = action.replace("\n", " ")
+    # Using double space after [STEP] to match mandatory spec alignment
     print(
-        f"[STEP] step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
+        f"[STEP]  step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
         flush=True,
     )
 
+
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
+    # Using triple space after [END] to match mandatory spec alignment
+    print(f"[END]   success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 def build_user_prompt(step: int, observation: dict, last_reward: float, history: List[str]) -> str:
     code = observation.get("code_snippet", "No code provided.")
@@ -109,7 +113,7 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
         )
         return (completion.choices[0].message.content or "").strip()
     except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
+        print(f"[DEBUG] Model request failed: {exc}", file=sys.stderr, flush=True)
         return "error"
 
 class RemoteEnv:
@@ -126,29 +130,34 @@ class RemoteEnv:
         # The environment expects the field name 'response'
         resp = requests.post(f"{self.base_url}/step", json={"response": action_str}, timeout=30)
         if resp.status_code != 200:
-            print(f"[DEBUG] Step failed: {resp.status_code} - {resp.text}", flush=True)
+            print(f"[DEBUG] Step failed: {resp.status_code} - {resp.text}", file=sys.stderr, flush=True)
         resp.raise_for_status()
         return resp.json()
 
 async def main() -> None:
-    if not HF_TOKEN:
-        print("[ERROR] HF_TOKEN environment variable is missing.", flush=True)
-        return
-
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    env = RemoteEnv(PING_URL)
-
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
     score = 0.0
     success = False
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
-
     try:
+        if not API_KEY:
+            print("[ERROR] Neither HF_TOKEN nor API_KEY found in environment.", file=sys.stderr, flush=True)
+            return
+
+        # Initialize clients inside try block
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        env = RemoteEnv(PING_URL)
+
+        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+
         # Step 0: Reset
         obs = await env.reset(TASK_NAME)
+        if not obs:
+            print("[ERROR] Environment reset returned empty observation.", file=sys.stderr, flush=True)
+            return
+
         last_reward = 0.0
         done = False
 
@@ -163,9 +172,13 @@ async def main() -> None:
             result = await env.step(action_text)
             
             # Step 3: Extract results
+            if not result or "observation" not in result:
+                print(f"[ERROR] Invalid step result at step {step}: {result}", file=sys.stderr, flush=True)
+                break
+
             obs = result["observation"]
-            reward = float(result["reward"])
-            done = bool(result["done"])
+            reward = float(result.get("reward", 0.0))
+            done = bool(result.get("done", False))
             error = result.get("info", {}).get("error")
 
             rewards.append(reward)
@@ -187,7 +200,8 @@ async def main() -> None:
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
-        print(f"[DEBUG] Runtime error: {e}", flush=True)
+        print(f"[DEBUG] Runtime error: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 

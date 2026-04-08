@@ -17,10 +17,8 @@ load_dotenv(override=True)
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1").strip()
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct").strip()
 HF_TOKEN = os.getenv("HF_TOKEN")
+API_KEY = HF_TOKEN or os.getenv("API_KEY")
 LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "coder-reviewer-env")
-
-# Use HF_TOKEN as the API Key for the Hugging Face Router
-API_KEY = HF_TOKEN
 
 # Target Environment Configuration
 PING_URL = os.getenv("HF_SPACE_URL", "http://localhost:7860").rstrip("/")
@@ -67,16 +65,17 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
     done_val = str(done).lower()
     # Normalize action for logging (remove newlines)
     action_clean = action.replace("\n", " ")
+    # Using double space after [STEP] to match mandatory spec alignment
     print(
-        f"[STEP] step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
+        f"[STEP]  step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
         flush=True,
     )
 
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    # Use 2 decimal places for score consistently with the example format
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
+    # Using triple space after [END] to match mandatory spec alignment
+    print(f"[END]   success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 def build_user_prompt(step: int, observation: dict, last_reward: float, history: List[str]) -> str:
     code = observation.get("code_snippet", "No code provided.")
@@ -143,8 +142,8 @@ async def main() -> None:
     success = False
 
     try:
-        if not HF_TOKEN:
-            print("[ERROR] HF_TOKEN environment variable is missing.", file=sys.stderr, flush=True)
+        if not API_KEY:
+            print("[ERROR] Neither HF_TOKEN nor API_KEY found in environment.", file=sys.stderr, flush=True)
             return
 
         # Initialize clients inside try block
