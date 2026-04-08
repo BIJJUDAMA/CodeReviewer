@@ -49,7 +49,7 @@ def get_system_prompt(task_type: str) -> str:
         You will be given a code snippet that contains a bug or stylistic issue.
         Identify the issue and provide a fix or analysis.
         
-        If identify_bug: respond with a single keyword (e.g. IndexError).
+        If identify_bug: respond with EXACTLY ONE keyword (e.g. IndexError). Do NOT explain. Do NOT add periods.
         If suggest_fix/full_review: provide corrected code in a ```python ... ``` block.
         """).strip()
 
@@ -93,6 +93,7 @@ def build_user_prompt(step: int, observation: dict, last_reward: float, history:
 def get_model_message(client: OpenAI, step: int, observation: dict, last_reward: float, history: List[str]) -> str:
     system_prompt = get_system_prompt(observation.get("task_type", ""))
     try:
+        user_prompt = build_user_prompt(step, observation, last_reward, history)
         completion = client.chat.completions.create(
             model=MODEL_NAME,
             messages=[

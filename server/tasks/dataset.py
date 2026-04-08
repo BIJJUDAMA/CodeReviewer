@@ -9,7 +9,7 @@ SNIPPETS = [
         "task_type": "identify_bug",
         "code_snippet": "def get_last(items):\n    return items[len(items)]",
         "bug_type": "index_error",
-        "aliases": ["index error", "off by one", "fencepost error", "out of bounds"],
+        "aliases": ["index error", "off by one", "fencepost error", "out of bounds", "indexerror"],
         "partial_match_words": ["index", "range", "boundary", "length"],
         "test_cases": [
             {"input_args": [[1, 2, 3]], "expected_output": 3},

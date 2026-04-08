@@ -1,7 +1,8 @@
 def score(agent_response: str, ground_truth: dict, step: int = 1) -> float:
     label = ground_truth.get("bug_type", "").lower()
     aliases = [a.lower() for a in ground_truth.get("aliases", [])]
-    response = agent_response.lower()
+    # Clean response: lowercase, remove trailing periods/punctuation
+    response = agent_response.lower().strip().replace(".", "").replace(",", "")
 
     # Tiered reward logic for meaningful signal
     base_score = 0.0
