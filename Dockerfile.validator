@@ -1,0 +1,18 @@
+# Specialized Docker-in-Docker environment for running the OpenEnv validator
+FROM python:3.11-slim
+
+# Install necessary system dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    docker.io \
+    bash \
+    git \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install OpenEnv validation tools
+RUN pip install --no-cache-dir openenv-core requests
+
+WORKDIR /repo
+
+# The entrypoint will run the bash script provided by the competition
+ENTRYPOINT ["bash", "/repo/validate-submission.sh"]

@@ -35,10 +35,17 @@ python inference.py
 ```
 
 ### 2. Validation
-To verify the environment against the OpenEnv specification, run the validation script:
+To verify the environment against the OpenEnv specification, use the provided Docker validator:
 
-```bash
-bash validate-submission.sh https://bijjudama-coderreviewer.hf.space .
+```powershell
+# Build the validator
+docker build -t openenv-validator -f Dockerfile.validator .
+
+# Run the validation against your live Space
+docker run --rm `
+  -v /var/run/docker.sock:/var/run/docker.sock `
+  -v "${PWD}:/repo" `
+  openenv-validator https://bijjudama-coderreviewer.hf.space .
 ```
 
 ## Repository Structure
