@@ -3,6 +3,7 @@ import asyncio
 import textwrap
 import requests
 import json
+import sys
 import traceback
 from typing import List, Optional
 from openai import OpenAI
@@ -60,18 +61,21 @@ def get_system_prompt(task_type: str) -> str:
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
 
+
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
     done_val = str(done).lower()
     # Normalize action for logging (remove newlines)
-    action_clean = action.replace("\n", " ")[:50] + "..." if len(action) > 50 else action.replace("\n", " ")
+    action_clean = action.replace("\n", " ")
     print(
         f"[STEP] step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}",
         flush=True,
     )
 
+
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
+    # Use 2 decimal places for score consistently with the example format
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 def build_user_prompt(step: int, observation: dict, last_reward: float, history: List[str]) -> str:
@@ -110,7 +114,7 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
         )
         return (completion.choices[0].message.content or "").strip()
     except Exception as exc:
-        print(f"[DEBUG] Model request failed: {exc}", flush=True)
+        print(f"[DEBUG] Model request failed: {exc}", file=sys.stderr, flush=True)
         return "error"
 
 class RemoteEnv:
@@ -127,7 +131,7 @@ class RemoteEnv:
         # The environment expects the field name 'response'
         resp = requests.post(f"{self.base_url}/step", json={"response": action_str}, timeout=30)
         if resp.status_code != 200:
-            print(f"[DEBUG] Step failed: {resp.status_code} - {resp.text}", flush=True)
+            print(f"[DEBUG] Step failed: {resp.status_code} - {resp.text}", file=sys.stderr, flush=True)
         resp.raise_for_status()
         return resp.json()
 
@@ -140,7 +144,7 @@ async def main() -> None:
 
     try:
         if not HF_TOKEN:
-            print("[ERROR] HF_TOKEN environment variable is missing.", flush=True)
+            print("[ERROR] HF_TOKEN environment variable is missing.", file=sys.stderr, flush=True)
             return
 
         # Initialize clients inside try block
@@ -152,7 +156,7 @@ async def main() -> None:
         # Step 0: Reset
         obs = await env.reset(TASK_NAME)
         if not obs:
-            print("[ERROR] Environment reset returned empty observation.", flush=True)
+            print("[ERROR] Environment reset returned empty observation.", file=sys.stderr, flush=True)
             return
 
         last_reward = 0.0
@@ -170,7 +174,7 @@ async def main() -> None:
             
             # Step 3: Extract results
             if not result or "observation" not in result:
-                print(f"[ERROR] Invalid step result at step {step}: {result}", flush=True)
+                print(f"[ERROR] Invalid step result at step {step}: {result}", file=sys.stderr, flush=True)
                 break
 
             obs = result["observation"]
@@ -197,8 +201,8 @@ async def main() -> None:
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
-        print(f"[DEBUG] Runtime error: {e}", flush=True)
-        traceback.print_exc()
+        print(f"[DEBUG] Runtime error: {e}", file=sys.stderr, flush=True)
+        traceback.print_exc(file=sys.stderr)
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
