@@ -13,12 +13,15 @@ from env import CodeReviewEnv, CodeReviewAction
 
 load_dotenv(override=True)
 
+if "API_BASE_URL" not in os.environ:
+    os.environ["API_BASE_URL"] = "https://router.huggingface.co/v1"
+if "API_KEY" not in os.environ:
+    os.environ["API_KEY"] = os.getenv("HF_TOKEN", "")
+if "MODEL_NAME" not in os.environ:
+    os.environ["MODEL_NAME"] = "Qwen/Qwen2.5-72B-Instruct"
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
-LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "coder-reviewer-env")
-
+# Retrieve for other uses if needed
+MODEL_NAME = os.environ["MODEL_NAME"]
 TASK_NAME = os.getenv("CODE_REVIEW_TASK", os.getenv("TASK", "identify_bug"))
 BENCHMARK = os.getenv("BENCHMARK", "code-review-env")
 
@@ -92,13 +95,10 @@ async def main() -> None:
     success = False
 
     try:
-        if not API_KEY:
-            print("[ERROR] Neither HF_TOKEN nor API_KEY found in environment.", file=sys.stderr, flush=True)
-            return
-
+        # STRICT ADHERENCE TO VALIDATOR INSTRUCTIONS
         client = OpenAI(
-            base_url=API_BASE_URL,
-            api_key=API_KEY
+            base_url=os.environ["API_BASE_URL"],
+            api_key=os.environ["API_KEY"]
         )
         
         # Instantiate environment LOCALLY instead of using Remote HTTP calls
