@@ -2,7 +2,7 @@ from typing import Optional, List, Dict, Any, Literal
 from pydantic import BaseModel
 from dataclasses import dataclass, field
 from tasks import dataset
-from graders import identify_bug, suggest_fix, full_review
+from graders import identify_bug, suggest_fix, full_review, security_audit, performance_refactor
 import random
 
 # Pydantic Models for OpenEnv Compliance
