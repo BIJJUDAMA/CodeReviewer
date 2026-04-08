@@ -3,6 +3,7 @@ import asyncio
 import textwrap
 import requests
 import json
+import traceback
 from typing import List, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -131,24 +132,29 @@ class RemoteEnv:
         return resp.json()
 
 async def main() -> None:
-    if not HF_TOKEN:
-        print("[ERROR] HF_TOKEN environment variable is missing.", flush=True)
-        return
-
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-    env = RemoteEnv(PING_URL)
-
     history: List[str] = []
     rewards: List[float] = []
     steps_taken = 0
     score = 0.0
     success = False
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
-
     try:
+        if not HF_TOKEN:
+            print("[ERROR] HF_TOKEN environment variable is missing.", flush=True)
+            return
+
+        # Initialize clients inside try block
+        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        env = RemoteEnv(PING_URL)
+
+        log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+
         # Step 0: Reset
         obs = await env.reset(TASK_NAME)
+        if not obs:
+            print("[ERROR] Environment reset returned empty observation.", flush=True)
+            return
+
         last_reward = 0.0
         done = False
 
@@ -163,9 +169,13 @@ async def main() -> None:
             result = await env.step(action_text)
             
             # Step 3: Extract results
+            if not result or "observation" not in result:
+                print(f"[ERROR] Invalid step result at step {step}: {result}", flush=True)
+                break
+
             obs = result["observation"]
-            reward = float(result["reward"])
-            done = bool(result["done"])
+            reward = float(result.get("reward", 0.0))
+            done = bool(result.get("done", False))
             error = result.get("info", {}).get("error")
 
             rewards.append(reward)
@@ -188,6 +198,7 @@ async def main() -> None:
 
     except Exception as e:
         print(f"[DEBUG] Runtime error: {e}", flush=True)
+        traceback.print_exc()
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
