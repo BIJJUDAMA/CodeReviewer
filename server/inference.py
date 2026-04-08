@@ -5,18 +5,17 @@ import textwrap
 import traceback
 from typing import List, Optional
 from openai import OpenAI
-from dotenv import load_dotenv
 
-# Search for env.py in 'server' directory
+# Ensure local imports inside 'server' work from the root directory
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "server")))
 from env import CodeReviewEnv, CodeReviewAction
 
 
-load_dotenv()
+if "API_KEY" not in os.environ and "HF_TOKEN" in os.environ:
+    os.environ["API_KEY"] = os.environ["HF_TOKEN"]
 
 TASK_NAME = os.getenv("CODE_REVIEW_TASK") or os.getenv("TASK") or "identify_bug"
 BENCHMARK = os.getenv("BENCHMARK") or "code-review-env"
-MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 
 MAX_STEPS = 8
 TEMPERATURE = 0.7
@@ -37,7 +36,7 @@ def log_start(task: str, env: str, model: str) -> None:
 def log_step(step: int, action: str, reward: float, done: bool, error: Optional[str]) -> None:
     error_val = error if error else "null"
     done_val = str(done).lower()
-    action_clean = action.replace("\n", " ")
+    action_clean = action.replace("\n", " ").replace("\r", " ")
     print(f"[STEP] step={step} action={action_clean} reward={reward:.2f} done={done_val} error={error_val}", flush=True)
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
@@ -60,23 +59,27 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
         task_type = observation.get("task_type", "")
         
     system_prompt = get_system_prompt(task_type)
-    try:
-        user_prompt = build_user_prompt(step, observation, last_reward, history)
-        completion = client.chat.completions.create(
-            model=MODEL_NAME,
-            messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-            temperature=TEMPERATURE,
-            max_tokens=MAX_TOKENS,
-            stream=False,
-        )
-        return (completion.choices[0].message.content or "").strip()
-    except Exception as e:
-        print(f"[ERROR] LLM generation failed: {e}", file=sys.stderr, flush=True)
-        return "error"
+    user_prompt = build_user_prompt(step, observation, last_reward, history)
+    
+    # Explosive call - no try/except
+    completion = client.chat.completions.create(
+        model=os.environ["MODEL_NAME"],
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ],
+        temperature=TEMPERATURE,
+        max_tokens=MAX_TOKENS,
+        stream=False,
+    )
+    return (completion.choices[0].message.content or "").strip()
 
 async def main() -> None:
-    # Diagnostic Start
-    log_start(task=TASK_NAME, env=BENCHMARK, model=MODEL_NAME)
+    # Explicitly log environment to stderr for debugging
+    print(f"DEBUG: Using API_BASE_URL={os.getenv('API_BASE_URL')}", file=sys.stderr)
+    print(f"DEBUG: Using MODEL_NAME={os.getenv('MODEL_NAME')}", file=sys.stderr)
+
+    log_start(task=TASK_NAME, env=BENCHMARK, model=os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct"))
     
     history: List[str] = []
     rewards: List[float] = []
@@ -85,21 +88,12 @@ async def main() -> None:
     success = False
 
     try:
-        # Diagnostic Check for environment keys
-        if "API_BASE_URL" not in os.environ or "API_KEY" not in os.environ:
-            print(f"[DEBUG] Environment check - API_BASE_URL in env: {'API_BASE_URL' in os.environ}, API_KEY in env: {'API_KEY' in os.environ}", file=sys.stderr, flush=True)
-            # If API_KEY is missing but HF_TOKEN exists, we try to fix it silently
-            if "API_KEY" not in os.environ and "HF_TOKEN" in os.environ:
-                os.environ["API_KEY"] = os.environ["HF_TOKEN"]
-
-        # MANDATORY: STRICT ADHERENCE TO os.environ INSTRUCTION
         client = OpenAI(
             base_url=os.environ["API_BASE_URL"],
             api_key=os.environ["API_KEY"]
         )
         
         env = CodeReviewEnv()
-
         obs = env.reset(TASK_NAME)
         if not obs:
             print("[ERROR] Environment reset failed.", file=sys.stderr, flush=True)
@@ -132,8 +126,9 @@ async def main() -> None:
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
-        print(f"[ERROR] Unhandled exception in main: {e}", file=sys.stderr, flush=True)
+        print(f"[CRITICAL ERROR] Execution failed: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
+        raise e
     finally:
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
