@@ -13,8 +13,9 @@ load_dotenv(override=True)
 # Environment Variables
 # Defaults are set ONLY for API_BASE_URL and MODEL_NAME (per checklist)
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1").strip()
-MODEL_NAME = os.getenv("MODEL_NAME", "deepseek-ai/DeepSeek-R1").strip()
-HF_TOKEN = os.getenv("HF_TOKEN") # No default allowed
+MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct").strip()
+HF_TOKEN = os.getenv("HF_TOKEN")
+LOCAL_IMAGE_NAME = os.getenv("LOCAL_IMAGE_NAME", "coder-reviewer-env")
 
 # Use HF_TOKEN as the API Key for the Hugging Face Router
 API_KEY = HF_TOKEN
@@ -24,6 +25,8 @@ PING_URL = os.getenv("HF_SPACE_URL", "http://localhost:7860").rstrip("/")
 TASK_NAME = os.getenv("CODE_REVIEW_TASK", "identify_bug")
 BENCHMARK = "code-review-env"
 MAX_STEPS = 8
+TEMPERATURE = 0.7
+MAX_TOKENS = 1000
 SUCCESS_SCORE_THRESHOLD = 0.5
 
 def get_system_prompt(task_type: str) -> str:
@@ -68,7 +71,7 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
+    print(f"[END] success={str(success).lower()} steps={steps} score={score:.2f} rewards={rewards_str}", flush=True)
 
 def build_user_prompt(step: int, observation: dict, last_reward: float, history: List[str]) -> str:
     code = observation.get("code_snippet", "No code provided.")
@@ -100,8 +103,8 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            temperature=0.7,
-            max_tokens=1000,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
             stream=False,
         )
         return (completion.choices[0].message.content or "").strip()
