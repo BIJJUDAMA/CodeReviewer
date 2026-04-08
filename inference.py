@@ -11,12 +11,29 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "serv
 from env import CodeReviewEnv, CodeReviewAction
 
 
+# 1. API_KEY Fix
 if "API_KEY" not in os.environ and "HF_TOKEN" in os.environ:
     os.environ["API_KEY"] = os.environ["HF_TOKEN"]
 
-# These remain flexible for local vs remote testing
+# 2. API_BASE_URL Fix (Ensure /v1)
+if "API_BASE_URL" in os.environ:
+    base_url = os.environ["API_BASE_URL"].rstrip("/")
+    if not base_url.endswith("/v1"):
+        os.environ["API_BASE_URL"] = base_url + "/v1"
+else:
+    # Safe fallback if missing entirely (should not happen based on logs)
+    os.environ["API_BASE_URL"] = "https://router.huggingface.co/v1"
+
+# 3. MODEL_NAME Fix (The cause of the recent crash)
+if "MODEL_NAME" not in os.environ or not os.environ["MODEL_NAME"]:
+    os.environ["MODEL_NAME"] = "Qwen/Qwen2.5-72B-Instruct"
+
+# ---------------------------------------------------------
+# Script Constants
+# ---------------------------------------------------------
 TASK_NAME = os.getenv("CODE_REVIEW_TASK") or os.getenv("TASK") or "identify_bug"
 BENCHMARK = os.getenv("BENCHMARK") or "code-review-env"
+MODEL_NAME = os.environ["MODEL_NAME"]
 
 MAX_STEPS = 8
 TEMPERATURE = 0.7
@@ -60,13 +77,9 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
         task_type = observation.get("task_type", "")
         
     system_prompt = get_system_prompt(task_type)
-    
-    # NO SILENT TRY/EXCEPT HERE. 
-    # If the LLM call fails, the whole script will crash and 
-    # finally show us the underlying error in the validator log.
     user_prompt = build_user_prompt(step, observation, last_reward, history)
     
-    # We use os.environ directly to guarantee we are talking to the proxy
+    # Using the strict MODEL_NAME from environment
     completion = client.chat.completions.create(
         model=os.environ["MODEL_NAME"],
         messages=[
@@ -81,10 +94,11 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
 
 async def main() -> None:
     # Explicitly log environment to stderr so we can debug if it explodes
-    print(f"DEBUG: Using API_BASE_URL={os.getenv('API_BASE_URL')}", file=sys.stderr)
-    print(f"DEBUG: Using MODEL_NAME={os.getenv('MODEL_NAME')}", file=sys.stderr)
+    print(f"DEBUG: Using API_BASE_URL={os.environ.get('API_BASE_URL')}", file=sys.stderr)
+    print(f"DEBUG: Using API_KEY PRESENT: {'API_KEY' in os.environ}", file=sys.stderr)
+    print(f"DEBUG: Using MODEL_NAME={os.environ.get('MODEL_NAME')}", file=sys.stderr)
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=os.getenv("MODEL_NAME", MODEL_NAME))
+    log_start(task=TASK_NAME, env=BENCHMARK, model=os.environ["MODEL_NAME"])
     
     history: List[str] = []
     rewards: List[float] = []
@@ -94,13 +108,13 @@ async def main() -> None:
 
     try:
         # MANDATORY: THE EXACT LITERAL STRING THEY ASK FOR
+        # base_url and api_key are read from os.environ which we fixed in Pre-flight.
         client = OpenAI(
             base_url=os.environ["API_BASE_URL"],
             api_key=os.environ["API_KEY"]
         )
         
         env = CodeReviewEnv()
-
         obs = env.reset(TASK_NAME)
         if not obs:
             print("[ERROR] Environment reset failed.", file=sys.stderr, flush=True)
@@ -133,13 +147,10 @@ async def main() -> None:
         success = score >= SUCCESS_SCORE_THRESHOLD
 
     except Exception as e:
-        # We log to stderr so validator log captures the traceback
         print(f"[CRITICAL ERROR] Execution failed: {e}", file=sys.stderr, flush=True)
         traceback.print_exc(file=sys.stderr)
-        # Note: We do NOT exit(1) gracefully here, we want the validator to see the crash
         raise e
     finally:
-        # Always emit [END] even on crash
         log_end(success=success, steps=steps_taken, score=score, rewards=rewards)
 
 if __name__ == "__main__":

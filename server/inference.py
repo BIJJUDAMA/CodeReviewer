@@ -11,11 +11,30 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "serv
 from env import CodeReviewEnv, CodeReviewAction
 
 
+
+# 1. API_KEY Fix
 if "API_KEY" not in os.environ and "HF_TOKEN" in os.environ:
     os.environ["API_KEY"] = os.environ["HF_TOKEN"]
 
+# 2. API_BASE_URL Fix (Ensure /v1)
+if "API_BASE_URL" in os.environ:
+    base_url = os.environ["API_BASE_URL"].rstrip("/")
+    if not base_url.endswith("/v1"):
+        os.environ["API_BASE_URL"] = base_url + "/v1"
+else:
+    # Safe fallback if missing entirely
+    os.environ["API_BASE_URL"] = "https://router.huggingface.co/v1"
+
+# 3. MODEL_NAME Fix (The cause of the recent crash)
+if "MODEL_NAME" not in os.environ or not os.environ["MODEL_NAME"]:
+    os.environ["MODEL_NAME"] = "Qwen/Qwen2.5-72B-Instruct"
+
+# ---------------------------------------------------------
+# Script Constants
+# ---------------------------------------------------------
 TASK_NAME = os.getenv("CODE_REVIEW_TASK") or os.getenv("TASK") or "identify_bug"
 BENCHMARK = os.getenv("BENCHMARK") or "code-review-env"
+MODEL_NAME = os.environ["MODEL_NAME"]
 
 MAX_STEPS = 8
 TEMPERATURE = 0.7
@@ -61,7 +80,7 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
     system_prompt = get_system_prompt(task_type)
     user_prompt = build_user_prompt(step, observation, last_reward, history)
     
-    # Explosive call - no try/except
+    # Using the strict MODEL_NAME from environment
     completion = client.chat.completions.create(
         model=os.environ["MODEL_NAME"],
         messages=[
@@ -75,11 +94,12 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
     return (completion.choices[0].message.content or "").strip()
 
 async def main() -> None:
-    # Explicitly log environment to stderr for debugging
-    print(f"DEBUG: Using API_BASE_URL={os.getenv('API_BASE_URL')}", file=sys.stderr)
-    print(f"DEBUG: Using MODEL_NAME={os.getenv('MODEL_NAME')}", file=sys.stderr)
+    # Explicitly log environment to stderr so we can debug if it explodes
+    print(f"DEBUG: Using API_BASE_URL={os.environ.get('API_BASE_URL')}", file=sys.stderr)
+    print(f"DEBUG: Using API_KEY PRESENT: {'API_KEY' in os.environ}", file=sys.stderr)
+    print(f"DEBUG: Using MODEL_NAME={os.environ.get('MODEL_NAME')}", file=sys.stderr)
 
-    log_start(task=TASK_NAME, env=BENCHMARK, model=os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct"))
+    log_start(task=TASK_NAME, env=BENCHMARK, model=os.environ["MODEL_NAME"])
     
     history: List[str] = []
     rewards: List[float] = []
@@ -88,6 +108,7 @@ async def main() -> None:
     success = False
 
     try:
+        # MANDATORY: THE EXACT LITERAL STRING THEY ASK FOR
         client = OpenAI(
             base_url=os.environ["API_BASE_URL"],
             api_key=os.environ["API_KEY"]
