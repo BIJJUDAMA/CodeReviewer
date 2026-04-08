@@ -1,3 +1,12 @@
+---
+title: CoderReviewer
+emoji: 🚀
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # OpenEnv Code Review
 
 OpenEnv Code Review is an evaluation environment for AI agents to perform automated code review tasks. It provides a standardized interface for identifying vulnerabilities, optimizing performance, and providing structured feedback through deterministic AST-based grading.
