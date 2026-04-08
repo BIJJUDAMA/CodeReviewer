@@ -275,6 +275,37 @@ SNIPPETS = [
         "style_keywords": ["math.sqrt", "type hints", "docstring"],
         "context": "Function checks if n is prime. Needs to be efficient for large primes.",
         "difficulty": "hard"
+    },
+    # security_audit (Hard)
+    {
+        "id": "sa_001",
+        "task_type": "security_audit",
+        "code_snippet": "def delete_file(filename):\n    import os\n    os.system(\"rm \" + filename)",
+        "bug_type": "command_injection",
+        "aliases": ["os.system injection", "command injection", "shell injection"],
+        "partial_match_words": ["os.system", "shell", "subprocess", "injection", "sanitize"],
+        "test_cases": [
+            {"input_args": ["test.txt"], "expected_output": None}
+        ],
+        "style_keywords": ["subprocess.run", "shell=False"],
+        "context": "Function deletes a file using shell command. Needs to be secured against command injection.",
+        "difficulty": "hard"
+    },
+    # performance_refactor (Hard)
+    {
+        "id": "pr_001",
+        "task_type": "performance_refactor",
+        "code_snippet": "def has_intersection(list1, list2):\n    for x in list1:\n        if x in list2:\n            return True\n    return False",
+        "bug_type": "algorithmic_inefficiency",
+        "aliases": ["o(n^2)", "nested loop", "inefficient search"],
+        "partial_match_words": ["set", "hash", "complexity", "performance", "n^2"],
+        "test_cases": [
+            {"input_args": [[1, 2, 3], [3, 4, 5]], "expected_output": True},
+            {"input_args": [[1, 2], [3, 4]], "expected_output": False}
+        ],
+        "style_keywords": ["set conversion", "any()"],
+        "context": "Function checks for element intersection. Needs to be optimized for time complexity.",
+        "difficulty": "hard"
     }
 ]
 
