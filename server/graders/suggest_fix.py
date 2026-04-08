@@ -36,7 +36,7 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
             
             # Local namespace for execution
             local_vars = {}
-            exec(code, {}, local_vars)
+            exec(code, local_vars, local_vars)
             
             if fn_name not in local_vars:
                 raise NameError(f"Function {fn_name} not found after execution.")
