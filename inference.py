@@ -12,11 +12,12 @@ from dotenv import load_dotenv
 # Load .env file
 load_dotenv(override=True)
 
-# Environment Variables - Use 'or' pattern to handle empty strings
+# Environment Variables - PRIORITIZE validator variables strictly
+API_KEY = os.getenv("API_KEY") or os.getenv("HF_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
-HF_TOKEN = os.getenv("HF_TOKEN")
-API_KEY = HF_TOKEN or os.getenv("API_KEY")
+
+# Other environment variables
 PING_URL = (os.getenv("HF_SPACE_URL") or "http://localhost:7860").rstrip("/")
 TASK_NAME = os.getenv("CODE_REVIEW_TASK") or os.getenv("MY_ENV_V4_TASK") or os.getenv("TASK") or "identify_bug"
 BENCHMARK = os.getenv("BENCHMARK") or "code-review-env"
@@ -47,7 +48,6 @@ def log_step(step: int, action: str, reward: float, done: bool, error: Optional[
 
 def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> None:
     rewards_str = ",".join(f"{r:.2f}" for r in rewards)
-    # Using .3f for score to match user provided sample exactly
     print(f"[END] success={str(success).lower()} steps={steps} score={score:.3f} rewards={rewards_str}", flush=True)
     sys.stdout.flush()
 
@@ -99,9 +99,14 @@ async def main() -> None:
 
     try:
         if not API_KEY:
+            # We must log end even if we fail early
             return
 
-        client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+        # Initialize client with strict environment variables
+        client = OpenAI(
+            base_url=API_BASE_URL,
+            api_key=API_KEY
+        )
         env = RemoteEnv(PING_URL)
 
         # Step 0: Reset
