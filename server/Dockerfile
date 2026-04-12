@@ -9,15 +9,19 @@ ENV PYTHONUNBUFFERED=1 \
 
 # Create a non-root user
 RUN useradd -m -u 1000 user
-USER user
 WORKDIR /app
 
-# Install dependencies
-COPY --chown=user requirements.txt .
-RUN pip install --user -r requirements.txt
+# Install dependencies from server folder
+COPY --chown=user server/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy application code
-COPY --chown=user . .
+# Copy the server directory contents to /app
+COPY --chown=user server/ .
+
+# Ensure the user has permissions
+RUN chown -R user:user /app
+
+USER user
 
 # HF Spaces expects port 7860
 EXPOSE 7860
