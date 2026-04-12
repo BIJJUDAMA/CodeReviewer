@@ -31,7 +31,7 @@ else:
 if "MODEL_NAME" not in os.environ or not os.environ["MODEL_NAME"]:
     os.environ["MODEL_NAME"] = "Qwen/Qwen2.5-72B-Instruct"
 
-# 4. PROXY Fix
+# 4. PROXY Fix - Resolves "unexpected keyword argument 'proxies'"
 os.environ.pop("HTTP_PROXY", None)
 os.environ.pop("HTTPS_PROXY", None)
 os.environ.pop("http_proxy", None)
@@ -44,7 +44,7 @@ BENCHMARK = "code-review-env"
 MAX_STEPS = 8
 TEMPERATURE = 0.7
 MAX_TOKENS = 1000
-SUCCESS_SCORE_THRESHOLD = 0.4
+SUCCESS_SCORE_THRESHOLD = 0.4 # Lowered slightly for multi-task robustness
 
 def get_system_prompt(task_type: str) -> str:
     base_expert = "You are an expert Python code reviewer."
@@ -98,6 +98,7 @@ def get_model_message(client: OpenAI, step: int, observation: dict, last_reward:
     return (completion.choices[0].message.content or "").strip()
 
 async def run_task(client: OpenAI, env: CodeReviewEnv, task_type: str) -> float:
+    """Runs a single task interaction loop and returns the final score."""
     log_start(task=task_type, env=BENCHMARK, model=os.environ["MODEL_NAME"])
     
     obs = env.reset(task_type)
@@ -127,7 +128,7 @@ async def run_task(client: OpenAI, env: CodeReviewEnv, task_type: str) -> float:
         if done: break
 
     total_reward = sum(rewards)
-    # Clamp final score strictly in (0, 1)
+    # Clamp final score strictly between 0 and 1
     task_score = max(0.01, min(0.99, total_reward / steps_taken if steps_taken > 0 else 0.0))
     
     log_end(success=task_score >= SUCCESS_SCORE_THRESHOLD, steps=steps_taken, score=task_score, rewards=rewards)
@@ -147,8 +148,13 @@ async def main() -> None:
         # MANDATORY: RUN AT LEAST 3 TASKS
         tasks_to_run = ["identify_bug", "suggest_fix", "security_audit"]
         
+        task_scores = []
         for task_type in tasks_to_run:
-            await run_task(client, env, task_type)
+            score = await run_task(client, env, task_type)
+            task_scores.append(score)
+
+        avg_score = sum(task_scores) / len(task_scores)
+        print(f"Final Average Score: {avg_score:.2f}", file=sys.stderr)
 
     except Exception as e:
         print(f"[CRITICAL ERROR] Execution failed: {e}", file=sys.stderr, flush=True)

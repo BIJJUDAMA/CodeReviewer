@@ -1,7 +1,7 @@
 import random
 from typing import List, Dict, Optional
 
-# 18 curated snippets for code review tasks
+# 20 curated snippets for code review tasks
 SNIPPETS = [
     # identify_bug (Easy)
     {
@@ -183,6 +183,35 @@ SNIPPETS = [
         ],
         "style_keywords": ["memoization", "iteration"],
         "context": "Function should calculate the n-th Fibonacci number.",
+        "difficulty": "medium"
+    },
+    {
+        "id": "sf_007",
+        "task_type": "suggest_fix",
+        "code_snippet": "def get_nested_value(data, keys):\n    curr = data\n    for k in keys:\n        curr = curr[k]\n    return curr",
+        "bug_type": "key_error",
+        "aliases": ["key error", "missing key", "safe get"],
+        "partial_match_words": ["keyerror", "get", "none", "nested", "safe"],
+        "test_cases": [
+            {"input_args": [{"a": {"b": 1}}, ["a", "b"]], "expected_output": 1},
+            {"input_args": [{"a": 1}, ["b"]], "expected_output": None}
+        ],
+        "style_keywords": ["safe get", "exception handling"],
+        "context": "Function should safely retrieve nested value. Return None if key is missing.",
+        "difficulty": "medium"
+    },
+    {
+        "id": "sf_008",
+        "task_type": "suggest_fix",
+        "code_snippet": "def filter_active_users(users):\n    return [u for u in users if u['status'] == 'active' or 'admin']",
+        "bug_type": "logic_error",
+        "aliases": ["always true condition", "boolean logic error"],
+        "partial_match_words": ["boolean", "truthy", "equality", "logic"],
+        "test_cases": [
+            {"input_args": [[{"name": "A", "status": "active"}, {"name": "B", "status": "inactive"}]], "expected_output": [{"name": "A", "status": "active"}]},
+        ],
+        "style_keywords": ["explicit comparison", "readability"],
+        "context": "Function filters users. Bug makes it return all users because 'admin' is always truthy.",
         "difficulty": "medium"
     },
 

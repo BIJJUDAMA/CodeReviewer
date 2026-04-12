@@ -2,7 +2,7 @@ import ast
 import re
 import sys
 import io
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 def extract_code_block(text: str) -> str:
     """Extracts the first python code block from a markdown string."""
@@ -25,9 +25,7 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
         sys.stdout = io.StringIO()
         
         try:
-            # We assume the code defines a function. 
-            # We'll exec the code and then call the function by name from the snippet.
-            # Heuristic: Find the first 'def function_name'
+            # Find the function name
             def_match = re.search(r"def\s+([a-zA-Z_][a-zA-Z0-9_]*)", code)
             if not def_match:
                 raise ValueError("No function definition found in code block.")
@@ -55,7 +53,7 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
         except Exception as e:
             results.append({
                 "passed": False,
-                "error": str(e),
+                "error": f"{type(e).__name__}: {str(e)}",
                 "input": input_args,
                 "expected": expected
             })
@@ -64,7 +62,7 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
             
     return results
 
-def score(agent_response: str, ground_truth: dict, step: int = 1) -> float:
+def score(agent_response: str, ground_truth: dict, step: int = 1) -> Tuple[float, str]:
     """
     Grades a Suggest Fix task.
     Provides tiered rewards:
@@ -73,32 +71,42 @@ def score(agent_response: str, ground_truth: dict, step: int = 1) -> float:
     """
     code = extract_code_block(agent_response)
     if not code:
-        return 0.0
+        return 0.0, "Error: No Python code block found in your response. Please wrap your code in triple backticks."
 
+    feedback_lines = []
+    
     # 1. Syntax Integrity Reward (20% weight)
-    # Check if code is valid Python using AST
     syntax_reward = 0.0
     try:
         ast.parse(code)
         syntax_reward = 1.0
-    except:
-        pass
+        feedback_lines.append("Syntax Check: Passed.")
+    except Exception as e:
+        feedback_lines.append(f"Syntax Check: Failed. Error: {str(e)}")
 
     # 2. Functional Correctness (80% weight)
     test_cases = ground_truth.get("test_cases", [])
+    passed_ratio = 0.0
     if not test_cases:
-        passed_ratio = 1.0 # Default if no tests
+        passed_ratio = 1.0
     else:
         results = run_tests(code, test_cases)
         results_count = len(results)
-        if results_count == 0:
-            passed_ratio = 1.0
-        else:
-            passed_ratio = sum(1 for r in results if r["passed"]) / results_count
+        passed_count = sum(1 for r in results if r["passed"])
+        passed_ratio = passed_count / results_count if results_count > 0 else 1.0
+        
+        feedback_lines.append(f"Tests: {passed_count}/{results_count} passed.")
+        for i, res in enumerate(results):
+            if not res["passed"]:
+                if "error" in res:
+                    feedback_lines.append(f" - Test {i+1} ERROR: {res['error']}")
+                else:
+                    feedback_lines.append(f" - Test {i+1} FAILED: Expected {res['expected']}, but got {res['actual']}.")
 
     # Combine: 20% for syntax mastery, 80% for logical success
     final_score = (0.2 * syntax_reward) + (0.8 * passed_ratio)
     
     # Scale based on step (incentivize faster fixes)
     decay = max(0.5, 1 - 0.05 * (step - 1))
-    return round(final_score * decay, 2)
+    
+    return round(float(final_score * decay), 2), "\n".join(feedback_lines)

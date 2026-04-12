@@ -36,6 +36,7 @@ observation_space:
     - step_number: integer
     - max_steps: integer
     - context: string (optional)
+    - feedback: string (optional)
 endpoints:
   reset: POST /reset
   step: POST /step

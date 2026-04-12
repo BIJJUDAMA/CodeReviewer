@@ -15,6 +15,7 @@ class CodeReviewObservation(BaseModel):
     step_number: int
     max_steps: int
     context: Optional[str]     # optional docstring or expected behavior hint
+    feedback: Optional[str] = None # feedback from the previous action (test outputs, etc)
 
 class CodeReviewAction(BaseModel):
     response: str              # agent's free-text output
@@ -34,6 +35,7 @@ class EnvState:
     max_steps: int = 0
     rewards: List[float] = field(default_factory=list)
     done: bool = False
+    last_feedback: Optional[str] = None
 
 class CodeReviewEnv:
     def __init__(self):
@@ -62,7 +64,8 @@ class CodeReviewEnv:
             step_number=1,
             max_steps=max_steps_map.get(task_type, 5),
             rewards=[],
-            done=False
+            done=False,
+            last_feedback=None
         )
         
         return self._get_observation()
@@ -81,17 +84,17 @@ class CodeReviewEnv:
         }
         
         grader = grader_map.get(self.state.task_type)
-        reward = grader.score(
+        reward, feedback = grader.score(
             action.response, 
             self.state.current_snippet, 
             step=self.state.step_number
         )
         
         # ENSURE STRICT RANGE (0, 1) per validator requirement
-        # This maps any [0, 1] input to [0.01, 0.99]
         reward = max(0.01, min(0.99, float(reward)))
         
         self.state.rewards.append(reward)
+        self.state.last_feedback = feedback
         self.state.step_number += 1
         
         # Check termination conditions
@@ -103,7 +106,10 @@ class CodeReviewEnv:
             observation=self._get_observation(),
             reward=float(reward),
             done=self.state.done,
-            info={"snippet_id": self.state.current_snippet["id"]}
+            info={
+                "snippet_id": self.state.current_snippet["id"],
+                "feedback": feedback
+            }
         )
 
     def _get_observation(self) -> CodeReviewObservation:
@@ -123,7 +129,8 @@ class CodeReviewEnv:
             task_description=task_desc_map.get(self.state.task_type, ""),
             step_number=self.state.step_number,
             max_steps=self.state.max_steps,
-            context=snippet.get("context")
+            context=snippet.get("context"),
+            feedback=self.state.last_feedback
         )
 
     def get_state_dict(self) -> Dict[str, Any]:
@@ -133,6 +140,6 @@ class CodeReviewEnv:
             "step_number": self.state.step_number,
             "max_steps": self.state.max_steps,
             "done": self.state.done,
-            "rewards": self.state.rewards
+            "rewards": self.state.rewards,
+            "last_feedback": self.state.last_feedback
         }
-
