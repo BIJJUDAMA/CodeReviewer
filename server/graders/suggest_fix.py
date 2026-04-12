@@ -91,14 +91,14 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
 def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
     Grades a Suggest Fix task on SUBMIT.
-    Returns score strictly within (0.01, 0.99).
+    Returns score strictly within (0.05, 0.95).
     """
     if not is_submission:
-        return 0.01, ""
+        return 0.05, ""
 
     syntax_ok, syntax_err = check_syntax(working_code)
     if not syntax_ok:
-        return 0.01, f"Submission Rejected: Syntax Error.\n{syntax_err}"
+        return 0.05, f"Submission Rejected: Syntax Error.\n{syntax_err}"
 
     test_cases = ground_truth.get("test_cases", [])
     if not test_cases:
@@ -119,5 +119,5 @@ def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: b
     if passed_ratio == 1.0:
         feedback += " Excellent work!"
     
-    # Strict (0.01, 0.99) clamping
-    return max(0.01, min(0.99, round(float(final_reward), 2))), feedback
+    # Strict (0.05, 0.95) clamping
+    return max(0.05, min(0.95, round(float(final_reward), 2))), feedback

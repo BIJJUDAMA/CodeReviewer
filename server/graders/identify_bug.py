@@ -3,10 +3,10 @@ from typing import Tuple
 def score(agent_response: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
     Grades an Identify Bug task on SUBMIT.
-    Returns score strictly within (0.01, 0.99).
+    Returns score strictly within (0.05, 0.95).
     """
     if not is_submission:
-        return 0.01, ""
+        return 0.05, ""
 
     label = ground_truth.get("bug_type", "").lower()
     aliases = [a.lower() for a in ground_truth.get("aliases", [])]
@@ -14,7 +14,7 @@ def score(agent_response: str, ground_truth: dict, step: int = 1, is_submission:
     # Clean response: lowercase, remove trailing periods/punctuation
     response = agent_response.lower().strip()
 
-    base_score = 0.01
+    base_score = 0.05
     feedback = ""
     
     # 1. Exact Match / Alias Match (0.7) - SUBMIT base reward
@@ -38,5 +38,5 @@ def score(agent_response: str, ground_truth: dict, step: int = 1, is_submission:
     decay = max(0.5, 1 - 0.03 * max(0, step - 2))
     final_score = base_score * decay
 
-    # Strict (0.01, 0.99) clamping
-    return max(0.01, min(0.99, round(float(final_score), 2))), feedback
+    # Strict (0.05, 0.95) clamping
+    return max(0.05, min(0.95, round(float(final_score), 2))), feedback

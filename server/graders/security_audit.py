@@ -5,16 +5,16 @@ from typing import Dict, Any, Tuple
 def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
     Grades a Security Audit task on SUBMIT.
-    Returns score strictly within (0.01, 0.99).
+    Returns score strictly within (0.05, 0.95).
     """
     if not is_submission:
-        return 0.01, ""
+        return 0.05, ""
 
     response = working_code.lower()
     feedback_lines = []
     
     # 1. Detection Score (0.3 weight)
-    detection_score = 0.01
+    detection_score = 0.05
     vulnerability_keywords = ground_truth.get("vulnerability_keywords", [])
     found_keywords = [kw for kw in vulnerability_keywords if kw in response]
     
@@ -25,7 +25,7 @@ def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: b
         feedback_lines.append("Vulnerability Identification: Failed.")
         
     # 2. Fix Score (0.4 weight)
-    fix_score = 0.01
+    fix_score = 0.05
     try:
         tree = ast.parse(working_code)
         forbidden = ground_truth.get("forbidden_patterns", [])
@@ -60,4 +60,4 @@ def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: b
     decay = max(0.5, 1 - 0.03 * max(0, step - 2))
     final_reward *= decay
     
-    return max(0.01, min(0.99, round(float(final_reward), 2))), "\n".join(feedback_lines)
+    return max(0.05, min(0.95, round(float(final_reward), 2))), "\n".join(feedback_lines)

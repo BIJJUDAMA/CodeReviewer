@@ -11,18 +11,20 @@ def score_style_notes(response: str, style_keywords: list[str]) -> Tuple[float, 
 def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
     Grades a Full Review task on SUBMIT.
-    Returns score strictly within (0.01, 0.99).
+    Returns score strictly within (0.05, 0.95).
     """
     if not is_submission:
-        return 0.01, ""
+        return 0.05, ""
 
-    # Sub-graders (already clamped internally to 0.01-0.99)
+    # Sub-graders (already clamped internally to 0.05-0.95)
     bug_s, bug_f = identify_bug.score(working_code, ground_truth, step=1, is_submission=True)
     fix_s, fix_f = suggest_fix.score(working_code, ground_truth, step=1, is_submission=True)
     
     # Scale to composite weights (0.3 max for bug/fix)
-    norm_bug = bug_s * (0.3 / 0.7)
-    norm_fix = fix_s * (0.3 / 0.7)
+    # sub-grader max is 0.7 normally, but we clamp to 0.95. 
+    # Use normalized ratios.
+    norm_bug = (bug_s / 0.7) * 0.3
+    norm_fix = (fix_s / 0.7) * 0.3
     
     style_keywords = ground_truth.get("style_keywords", [])
     style_s, style_f = score_style_notes(working_code, style_keywords)
@@ -33,4 +35,4 @@ def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: b
     
     combined_feedback = f"FULL: {bug_f} | {fix_f} | {style_f}"
     
-    return max(0.01, min(0.99, round(float(final_reward), 2))), combined_feedback
+    return max(0.05, min(0.95, round(float(final_reward), 2))), combined_feedback

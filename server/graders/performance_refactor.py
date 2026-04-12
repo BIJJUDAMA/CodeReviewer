@@ -6,15 +6,15 @@ from . import suggest_fix
 def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
     Grades a Performance Refactor task on SUBMIT.
-    Returns score strictly within (0.01, 0.99).
+    Returns score strictly within (0.05, 0.95).
     """
     if not is_submission:
-        return 0.01, ""
+        return 0.05, ""
 
     feedback_lines = []
     
     # 1. Performance Logic (0.2 weight)
-    logic_score = 0.01
+    logic_score = 0.05
     performance_keywords = ground_truth.get("performance_keywords", ["complexity", "o(n)", "set", "dictionary"])
     found_keywords = [kw for kw in performance_keywords if kw in working_code.lower()]
     if found_keywords:
@@ -24,7 +24,7 @@ def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: b
         feedback_lines.append("Analysis: Fails to mention optimization concepts.")
         
     # 2. Optimization Pattern Score (0.3 weight)
-    opt_score = 0.01
+    opt_score = 0.05
     try:
         mandatory = ground_truth.get("optimized_patterns", ["set(", "dict("])
         has_optimized = any(pat in working_code for pat in mandatory)
@@ -45,4 +45,4 @@ def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: b
     decay = max(0.5, 1 - 0.03 * max(0, step - 2))
     final_reward *= decay
     
-    return max(0.01, min(0.99, round(float(final_reward), 2))), "\n".join(feedback_lines)
+    return max(0.05, min(0.95, round(float(final_reward), 2))), "\n".join(feedback_lines)

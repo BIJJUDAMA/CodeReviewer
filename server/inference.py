@@ -133,7 +133,8 @@ async def run_task(client: AsyncOpenAI, env_factory: Any, task_type: str) -> flo
         history.append({"role": "user", "content": build_user_prompt(step, obs)})
         history.append({"role": "assistant", "content": json.dumps(action_json)})
         
-        action = CodeReviewAction(command=action_json.get("command", "RUN_TESTS"), payload=action_json.get("payload", ""))
+        # Validator compatibility: wrap structured command in 'response' string
+        action = CodeReviewAction(response=json.dumps(action_json))
         
         result = env.step(action)
         obs = result.observation
@@ -148,8 +149,9 @@ async def run_task(client: AsyncOpenAI, env_factory: Any, task_type: str) -> flo
         if done: break
 
     # Episode Score: Use max(rewards) for RL convergence goal (Requirement 9)
-    # Clamp strictly within (0.01, 0.99) as required by the validator
-    task_score = max(0.01, min(0.99, max(rewards) if rewards else 0.01))
+    # Clamp strictly within (0.05, 0.95) as required by the validator
+    task_score = max(0.05, min(0.95, max(rewards) if rewards else 0.05))
+
     
     log_end(success=task_score >= SUCCESS_SCORE_THRESHOLD, steps=steps_taken, score=task_score, rewards=rewards)
     return task_score

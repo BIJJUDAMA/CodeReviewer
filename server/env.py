@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from tasks import dataset
 from graders import identify_bug, suggest_fix, full_review, security_audit, performance_refactor
 import random
+import json
 
 # Pydantic Models for OpenEnv Compliance
 
@@ -18,8 +19,8 @@ class CodeReviewObservation(BaseModel):
     feedback: Optional[str] = None # TERMINAL OUTPUT / FEEDBACK from last action
 
 class CodeReviewAction(BaseModel):
-    command: Literal["RUN_TESTS", "EDIT_CODE", "SUBMIT"]
-    payload: str = ""          # The code if EDIT_CODE, else empty
+    # Validator compatibility: accept a 'response' field as plain text
+    response: str
 
 class StepResult(BaseModel):
     observation: CodeReviewObservation
@@ -79,31 +80,43 @@ class CodeReviewEnv:
         if self.state.status != "running":
             raise ValueError("Environment not in running state. Call reset() first.")
 
-        reward = 0.01
+        reward = 0.05 # Initial baseline in (0, 1)
         feedback = ""
         
-        # 1. Handle Commands (Simulation logic)
-        if action.command == "RUN_TESTS":
-            # Wordle Reward (+0.1) for first investigation step
+        # 1. Attempt to parse command from response (JSON support for advanced agents)
+        command = "SUBMIT"
+        payload = action.response
+        
+        try:
+            parsed = json.loads(action.response)
+            if isinstance(parsed, dict) and "command" in parsed:
+                command = parsed.get("command", "SUBMIT")
+                payload = parsed.get("payload", action.response)
+        except:
+            # Not JSON, default to SUBMIT with raw response as payload
+            pass
+
+        # 2. Handle Commands
+        if command == "RUN_TESTS":
             if not self.state.reproduced_bug:
                 reward += 0.1
                 self.state.reproduced_bug = True
-            
-            # Execute current working_code against tests
             feedback = suggest_fix.run_execution_test(self.state.working_code, self.state.current_snippet)
             
-        elif action.command == "EDIT_CODE":
-            self.state.working_code = action.payload
-            # Wordle Reward (+0.2) for syntax integrity
+        elif command == "EDIT_CODE":
+            self.state.working_code = payload
             syntax_ok, syntax_err = suggest_fix.check_syntax(self.state.working_code)
             if syntax_ok:
                 reward += 0.2
                 feedback = "Syntax Check: PASSED. Use RUN_TESTS to verify behavior."
             else:
-                reward -= 0.1 # Penalty for carelessness
+                reward -= 0.1
                 feedback = f"Syntax Check: FAILED.\n{syntax_err}"
                 
-        elif action.command == "SUBMIT":
+        else: # SUBMIT (default)
+            if command == "SUBMIT": # explicit submit might have payload
+                self.state.working_code = payload if payload else self.state.working_code
+
             grader_map = {
                 "identify_bug": identify_bug,
                 "suggest_fix": suggest_fix,
@@ -112,7 +125,6 @@ class CodeReviewEnv:
                 "performance_refactor": performance_refactor
             }
             grader = grader_map.get(self.state.task_type)
-            
             reward_val, feedback_val = grader.score(
                 self.state.working_code, 
                 self.state.current_snippet, 
@@ -122,19 +134,17 @@ class CodeReviewEnv:
             reward += reward_val
             feedback = feedback_val
             
-            # Termination logic
-            if reward >= 0.95 or self.state.step_number >= self.state.max_steps:
-                self.state.done = True
-                self.state.status = "done"
+            # Auto-done on submission
+            self.state.done = True
+            self.state.status = "done"
 
-        # FINAL STRICT CLAMPING within (0.01, 0.99)
-        reward = max(0.01, min(0.99, float(reward)))
+        # FINAL STRICT CLAMPING within (0.05, 0.95) to satisfy validator
+        reward = max(0.05, min(0.95, float(reward)))
         
         self.state.rewards.append(reward)
         self.state.last_feedback = feedback
         self.state.step_number += 1
         
-        # Termination conditions (Max steps reached)
         if self.state.step_number > self.state.max_steps:
             self.state.done = True
             self.state.status = "done"
@@ -143,7 +153,7 @@ class CodeReviewEnv:
             observation=self._get_observation(),
             reward=float(reward),
             done=self.state.done,
-            info={"snippet_id": self.state.current_snippet["id"], "command": action.command}
+            info={"snippet_id": self.state.current_snippet["id"], "command": command}
         )
 
     def _get_observation(self) -> CodeReviewObservation:
