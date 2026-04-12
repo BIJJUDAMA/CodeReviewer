@@ -1,26 +1,37 @@
+from typing import Tuple
 from . import identify_bug, suggest_fix
 
-WEIGHTS = {"bug": 0.40, "fix": 0.35, "style": 0.25}
-
-def score_style_notes(response: str, style_keywords: list[str]) -> float:
+def score_style_notes(response: str, style_keywords: list[str]) -> Tuple[float, str]:
     if not style_keywords:
-        return 1.0
+        return 0.1, "Style: OK."
     hits = sum(1 for kw in style_keywords if kw.lower() in response.lower())
-    return min(hits / len(style_keywords), 1.0)
+    score = (hits / len(style_keywords)) * 0.1
+    return max(0.01, min(0.1, score)), f"Style: {hits}/{len(style_keywords)}."
 
-def score(agent_response: str, ground_truth: dict, step: int = 1) -> float:
-    # Use step=1 for sub-graders to avoid double penalty as discussed before, 
-    # but the user snippet didn't specify. I will stick to user's logic mostly.
-    bug_score = identify_bug.score(agent_response, ground_truth, step)
-    fix_score = suggest_fix.score(agent_response, ground_truth, step) # Added step=step to match current suggest_fix signature
+def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
+    """
+    Grades a Full Review task on SUBMIT.
+    Returns score strictly within (0.05, 0.95).
+    """
+    if not is_submission:
+        return 0.05, ""
+
+    # Sub-graders (already clamped internally to 0.05-0.95)
+    bug_s, bug_f = identify_bug.score(working_code, ground_truth, step=1, is_submission=True)
+    fix_s, fix_f = suggest_fix.score(working_code, ground_truth, step=1, is_submission=True)
+    
+    # Scale to composite weights (0.3 max for bug/fix)
+    # sub-grader max is 0.7 normally, but we clamp to 0.95. 
+    norm_bug = (bug_s / 0.7) * 0.3
+    norm_fix = (fix_s / 0.7) * 0.3
+    
     style_keywords = ground_truth.get("style_keywords", [])
-    style_score = score_style_notes(agent_response, style_keywords)
+    style_s, style_f = score_style_notes(working_code, style_keywords)
     
-    final_score = (
-        WEIGHTS["bug"] * bug_score +
-        WEIGHTS["fix"] * fix_score +
-        WEIGHTS["style"] * style_score
-    )
+    final_reward = norm_bug + norm_fix + style_s
+    decay = max(0.5, 1 - 0.03 * max(0, step - 2))
+    final_reward *= decay
     
-    # STRICT (0.01, 0.99) clamp
-    return max(0.01, min(0.99, round(final_score, 2)))
+    combined_feedback = f"FULL: {bug_f} | {fix_f} | {style_f}"
+    
+    return max(0.05, min(0.95, round(float(final_reward), 2))), combined_feedback

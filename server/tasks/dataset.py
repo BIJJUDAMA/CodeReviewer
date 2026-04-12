@@ -119,8 +119,8 @@ SNIPPETS = [
         "task_type": "security_audit",
         "code_snippet": "def search_user(username):\n    query = \"SELECT * FROM users WHERE name = '\" + username + \"'\"\n    db.execute(query)",
         "vulnerability_keywords": ["sql injection", "string concatenation", "parameterized query"],
-        "forbidden_patterns": ["db.execute"], # Heuristic for raw string query
-        "secure_patterns": ["?", "%s", "execute(query, ("], # Parameterized patterns
+        "forbidden_patterns": ["db.execute"],
+        "secure_patterns": ["?", "%s", "execute(query, ("],
         "test_cases": [
             {"input_args": ["alice"], "expected_output": None}
         ],
@@ -159,7 +159,6 @@ SNIPPETS = [
 def get_task_snippet(task_type: str) -> dict:
     filtered = [s for s in SNIPPETS if s["task_type"] == task_type]
     if not filtered:
-        # Fallback if no specific task found
         return random.choice(SNIPPETS)
     return random.choice(filtered)
 

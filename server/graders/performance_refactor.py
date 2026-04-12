@@ -1,65 +1,49 @@
 import re
 import ast
-from typing import Dict, Any
+from typing import Dict, Any, Tuple
+from . import suggest_fix
 
-def score(agent_response: str, ground_truth: dict, step: int = 1) -> float:
+def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
-    Grades a Performance Refactor task.
-    Uses AST to verify if the agent optimized O(n^2) to O(n).
-    Specifically looks for converting a search list to a set/dict.
+    Grades a Performance Refactor task on SUBMIT.
+    Returns score strictly within (0.05, 0.95).
     """
-    response = agent_response.lower()
+    if not is_submission:
+        return 0.05, ""
+
+    feedback_lines = []
     
-    # 1. Logic Identification (30% weight)
-    # Did it mention 'complexity', 'O(n)', 'set', or 'performance'?
-    logic_score = 0.01
-    performance_keywords = ["complexity", "o(n)", "set", "dictionary", "linear time", "bottleneck"]
-    if any(kw in response for kw in performance_keywords):
-        logic_score = 1.0
+    # 1. Performance Logic (0.2 weight)
+    logic_score = 0.05
+    performance_keywords = ground_truth.get("performance_keywords", ["complexity", "o(n)", "set", "dictionary"])
+    found_keywords = [kw for kw in performance_keywords if kw in working_code.lower()]
+    if found_keywords:
+        logic_score = 0.2 * (len(found_keywords) / len(performance_keywords))
+        feedback_lines.append(f"Analysis: Identified indicators.")
+    else:
+        feedback_lines.append("Analysis: Fails to mention optimization concepts.")
         
-    # 2. Optimization Score (70% weight)
-    # Did the code actually implement the set() optimization?
-    opt_score = 0.01
-    
-    code_blocks = re.findall(r"```(?:python)?\s*(.*?)```", agent_response, re.DOTALL | re.IGNORECASE)
-    
-    for code in code_blocks:
-        try:
-            tree = ast.parse(code)
-            
-            has_set_conversion = False
-            has_efficient_lookup = False
-            
-            for node in ast.walk(tree):
-                # Look for set(some_list)
-                if isinstance(node, ast.Call):
-                    if isinstance(node.func, ast.Name) and node.func.id in ["set", "dict"]:
-                        has_set_conversion = True
-                
-                # Look for 'x in some_set' where some_set is a variable (not a list literal)
-                if isinstance(node, ast.Compare):
-                    if isinstance(node.ops[0], ast.In):
-                        # This is a bit complex for a simple grader, 
-                        # so we use a heuristic: presence of set() + presence of 'in'
-                        has_efficient_lookup = True
-            
-            if has_set_conversion and has_efficient_lookup:
-                opt_score = 1.0
-                break
-            elif has_set_conversion:
-                opt_score = 0.6 # Converted to set but maybe didn't use it right
-                
-        except SyntaxError:
-            # Fallback to string matching for optimized patterns
-            if "set(" in code.lower() and " in " in code.lower():
-                opt_score = 0.8
-            elif "set(" in code.lower():
-                opt_score = 0.4
+    # 2. Optimization Pattern Score (0.3 weight)
+    opt_score = 0.05
+    try:
+        mandatory = ground_truth.get("optimized_patterns", ["set(", "dict("])
+        has_optimized = any(pat in working_code for pat in mandatory)
+        if has_optimized:
+            opt_score = 0.3
+            feedback_lines.append("Pattern Review: Found efficient usage.")
+    except:
+        pass
 
-    final_score = (0.3 * logic_score) + (0.7 * opt_score)
+    # 3. Functional Correctness (0.2 weight)
+    test_cases = ground_truth.get("test_cases", [])
+    # Reuse suggest_fix code execution logic
+    results = suggest_fix.run_tests(suggest_fix.extract_code_block(working_code), test_cases)
+    passed_count = sum(1 for r in results if r["passed"])
+    functional_score = 0.2 * (passed_count / len(results) if results else 1.0)
+    feedback_lines.append(f"Verification: {passed_count}/{len(results)} tests passed.")
+
+    final_reward = logic_score + opt_score + functional_score
+    decay = max(0.5, 1 - 0.03 * max(0, step - 2))
+    final_reward *= decay
     
-    # Apply step-decay
-    decay_factor = max(0.5, 1 - 0.1 * (step - 1))
-    
-    # STRICT (0.01, 0.99) clamp
-    return max(0.01, min(0.99, round(float(final_score * decay_factor), 2)))
+    return max(0.05, min(0.95, round(float(final_reward), 2))), "\n".join(feedback_lines)
