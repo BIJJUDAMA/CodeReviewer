@@ -1,5 +1,6 @@
 import uvicorn
-from fastapi import FastAPI, Request, Body
+from fastapi import FastAPI, Request
+from fastapi.responses import ORJSONResponse
 from env import CodeReviewEnv, CodeReviewAction
 from typing import Optional
 from dotenv import load_dotenv
@@ -7,7 +8,8 @@ from dotenv import load_dotenv
 # Load .env file
 load_dotenv()
 
-app = FastAPI(title="OpenEnv Code Review Environment")
+# Using ORJSONResponse for ultra-fast serialization (Requirement 6)
+app = FastAPI(title="OpenEnv Code Review Environment", default_response_class=ORJSONResponse)
 
 @app.get("/")
 async def root():
@@ -23,7 +25,7 @@ env = CodeReviewEnv()
 @app.post("/reset")
 async def reset(request: Request):
     """
-    Resets the environment. Handles both empty body and JSON with task_type.
+    Resets the environment.
     """
     data = {}
     try:
@@ -59,6 +61,7 @@ async def health():
 
 def main():
     """Entry point for the OpenEnv server."""
+    # HF Spaces expects port 7860
     uvicorn.run("app:app", host="0.0.0.0", port=7860, reload=False)
 
 if __name__ == "__main__":

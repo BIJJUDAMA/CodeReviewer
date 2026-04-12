@@ -12,6 +12,34 @@ def extract_code_block(text: str) -> str:
         return match.group(1).strip()
     return ""
 
+def check_syntax(code: str) -> Tuple[bool, str]:
+    """Verifies if the code is valid Python syntax."""
+    try:
+        ast.parse(code)
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
+def run_execution_test(code: str, ground_truth: dict) -> str:
+    """Simulates a test runner and returns stdout/stderr logs."""
+    test_cases = ground_truth.get("test_cases", [])
+    if not test_cases:
+        return "No tests defined for this snippet."
+    
+    results = run_tests(code, test_cases)
+    passed_count = sum(1 for r in results if r["passed"])
+    total = len(results)
+    
+    output = [f"Ran {total} tests. {passed_count} PASSED, {total - passed_count} FAILED."]
+    for i, res in enumerate(results):
+        if not res["passed"]:
+            if "error" in res:
+                output.append(f"Test {i+1} ERROR: {res['error']}")
+            else:
+                output.append(f"Test {i+1} FAILED: Expected {res['expected']}, got {res['actual']}")
+    
+    return "\n".join(output)
+
 def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Executes the provided code against test cases."""
     results = []
@@ -20,7 +48,6 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
         input_args = test.get("input_args", [])
         expected = test.get("expected_output")
         
-        # Capture stdout to prevent cluttering logs
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         
@@ -32,7 +59,6 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
             
             fn_name = def_match.group(1)
             
-            # Local namespace for execution
             local_vars = {}
             exec(code, local_vars, local_vars)
             
@@ -62,51 +88,36 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
             
     return results
 
-def score(agent_response: str, ground_truth: dict, step: int = 1) -> Tuple[float, str]:
+def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
-    Grades a Suggest Fix task.
-    Provides tiered rewards:
-    - 20% for Syntax Integrity (is it valid Python?)
-    - 80% for Functional Correctness (passing test cases)
+    Grades a Suggest Fix task on SUBMIT.
+    - 0.7 reward for full correctness on submission.
+    - Decays slightly for reasoning steps.
     """
-    code = extract_code_block(agent_response)
-    if not code:
-        return 0.0, "Error: No Python code block found in your response. Please wrap your code in triple backticks."
+    if not is_submission:
+        return 0.0, ""
 
-    feedback_lines = []
-    
-    # 1. Syntax Integrity Reward (20% weight)
-    syntax_reward = 0.0
-    try:
-        ast.parse(code)
-        syntax_reward = 1.0
-        feedback_lines.append("Syntax Check: Passed.")
-    except Exception as e:
-        feedback_lines.append(f"Syntax Check: Failed. Error: {str(e)}")
+    syntax_ok, syntax_err = check_syntax(working_code)
+    if not syntax_ok:
+        return 0.0, f"Submission Rejected: Syntax Error.\n{syntax_err}"
 
-    # 2. Functional Correctness (80% weight)
     test_cases = ground_truth.get("test_cases", [])
-    passed_ratio = 0.0
     if not test_cases:
-        passed_ratio = 1.0
-    else:
-        results = run_tests(code, test_cases)
-        results_count = len(results)
-        passed_count = sum(1 for r in results if r["passed"])
-        passed_ratio = passed_count / results_count if results_count > 0 else 1.0
-        
-        feedback_lines.append(f"Tests: {passed_count}/{results_count} passed.")
-        for i, res in enumerate(results):
-            if not res["passed"]:
-                if "error" in res:
-                    feedback_lines.append(f" - Test {i+1} ERROR: {res['error']}")
-                else:
-                    feedback_lines.append(f" - Test {i+1} FAILED: Expected {res['expected']}, but got {res['actual']}.")
+        return 0.7, "Submission Accepted: No tests required."
 
-    # Combine: 20% for syntax mastery, 80% for logical success
-    final_score = (0.2 * syntax_reward) + (0.8 * passed_ratio)
+    results = run_tests(working_code, test_cases)
+    passed_count = sum(1 for r in results if r["passed"])
+    passed_ratio = passed_count / len(results)
     
-    # Scale based on step (incentivize faster fixes)
-    decay = max(0.5, 1 - 0.05 * (step - 1))
+    # 0.7 base for full resolution
+    final_reward = 0.7 * passed_ratio
     
-    return round(float(final_score * decay), 2), "\n".join(feedback_lines)
+    # Forgiving Step Decay: (max(0.5, 1 - 0.03 * max(0, step - 2)))
+    decay = max(0.5, 1 - 0.03 * max(0, step - 2))
+    final_reward *= decay
+
+    feedback = f"Final Submission Results: {passed_count}/{len(results)} tests passed."
+    if passed_ratio == 1.0:
+        feedback += " Excellent work!"
+    
+    return round(float(final_reward), 2), feedback

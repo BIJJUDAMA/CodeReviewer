@@ -18,7 +18,8 @@ dependencies = [
     "requests",
     "openai>=2.7.2",
     "python-dotenv",
-    "openenv-core>=0.2.0"
+    "openenv-core>=0.2.0",
+    "orjson>=3.10.0"
 ]
 
 [project.scripts]

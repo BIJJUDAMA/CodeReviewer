@@ -2,72 +2,67 @@ import re
 import ast
 from typing import Dict, Any, Tuple
 
-def score(agent_response: str, ground_truth: dict, step: int = 1) -> Tuple[float, str]:
+def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
-    Grades a Security Audit task.
+    Grades a Security Audit task on SUBMIT.
     Rewards both identifying the vulnerability type and providing a secure fix.
     """
-    response = agent_response.lower()
+    if not is_submission:
+        return 0.0, ""
+
+    response = working_code.lower()
     feedback_lines = []
     
-    # 1. Detection Score (40% weight)
+    # 1. Detection Score (0.3 weight) - Data Driven
     detection_score = 0.0
-    vulnerability_keywords = ["command injection", "shell injection", "os.system", "sanitize", "subprocess"]
+    vulnerability_keywords = ground_truth.get("vulnerability_keywords", [])
     found_keywords = [kw for kw in vulnerability_keywords if kw in response]
     
-    if "command injection" in response or "shell injection" in response:
-        detection_score = 1.0
-        feedback_lines.append("Vulnerability Identification: Correct (Command Injection).")
-    elif found_keywords:
-        detection_score = 0.5
-        feedback_lines.append(f"Vulnerability Identification: Partial. Found keywords: {', '.join(found_keywords)}.")
+    if found_keywords:
+        detection_score = 0.3 * (len(found_keywords) / len(vulnerability_keywords))
+        feedback_lines.append(f"Vulnerability Identification: Found {len(found_keywords)} key indicators.")
     else:
-        feedback_lines.append("Vulnerability Identification: Failed.")
+        feedback_lines.append("Vulnerability Identification: Failed to recognize the core vulnerability.")
         
-    # 2. Fix Score (60% weight)
+    # 2. Fix Score (0.4 weight) - Data Driven / AST
     fix_score = 0.0
-    code_blocks = re.findall(r"```(?:python)?\s*(.*?)```", agent_response, re.DOTALL | re.IGNORECASE)
-    
-    if not code_blocks:
-        feedback_lines.append("Fix: No code block provided.")
-    
-    for code in code_blocks:
-        try:
-            tree = ast.parse(code)
-            has_os_system = False
-            has_subprocess_safe = False
-            
-            for node in ast.walk(tree):
-                if isinstance(node, ast.Call):
-                    if isinstance(node.func, ast.Attribute):
-                        if isinstance(node.func.value, ast.Name) and node.func.value.id == "os" and node.func.attr == "system":
-                            has_os_system = True
-                        if isinstance(node.func.value, ast.Name) and node.func.value.id == "subprocess" and node.func.attr in ["run", "call", "check_output"]:
-                            shell_true = False
-                            for kw in node.keywords:
-                                if kw.arg == "shell" and isinstance(kw.value, ast.Constant) and kw.value.value is True:
-                                    shell_true = True
-                            if not shell_true:
-                                has_subprocess_safe = True
-            
-            if has_subprocess_safe and not has_os_system:
-                fix_score = 1.0
-                feedback_lines.append("Fix: Secure (using subprocess without shell=True).")
-                break
-            elif has_subprocess_safe:
-                fix_score = 0.5
-                feedback_lines.append("Fix: Partial. Added subprocess but didn't remove os.system.")
-            else:
-                feedback_lines.append("Fix: Insecure or missing proper subprocess usage.")
+    try:
+        tree = ast.parse(working_code)
+        
+        # Check for forbidden patterns (e.g., os.system)
+        forbidden = ground_truth.get("forbidden_patterns", [])
+        has_forbidden = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call):
+                call_str = ""
+                if isinstance(node.func, ast.Attribute):
+                    if isinstance(node.func.value, ast.Name):
+                        call_str = f"{node.func.value.id}.{node.func.attr}"
+                elif isinstance(node.func, ast.Name):
+                    call_str = node.func.id
                 
-        except SyntaxError:
-            if "subprocess.run" in code and "shell=false" in code.lower():
-                fix_score = 0.8
-                feedback_lines.append("Fix: Likely secure (detected subprocess.run with shell=False).")
-            else:
-                feedback_lines.append("Fix: Syntax error in code block, unable to verify fully.")
+                if call_str in forbidden:
+                    has_forbidden = True
+                    feedback_lines.append(f"Fix Review: Found forbidden insecure call: {call_str}")
+        
+        # Check for mandatory secure patterns (e.g., subprocess.run with shell=False)
+        secure_patterns = ground_truth.get("secure_patterns", [])
+        has_secure = all(pat in working_code for pat in secure_patterns)
+        
+        if has_secure and not has_forbidden:
+            fix_score = 0.4
+            feedback_lines.append("Fix Review: Code follows secure implementation patterns.")
+        elif has_secure:
+            fix_score = 0.1
+            feedback_lines.append("Fix Review: Secure pattern added but insecure code remains.")
+            
+    except SyntaxError as e:
+        feedback_lines.append(f"Fix Review: Syntax Error in submission: {str(e)}")
 
-    final_score = (0.4 * detection_score) + (0.6 * fix_score)
-    decay_factor = max(0.5, 1 - 0.1 * (step - 1))
+    final_reward = detection_score + fix_score
     
-    return round(float(final_score * decay_factor), 2), "\n".join(feedback_lines)
+    # Forgiving Step Decay: (max(0.5, 1 - 0.03 * max(0, step - 2)))
+    decay = max(0.5, 1 - 0.03 * max(0, step - 2))
+    final_reward *= decay
+    
+    return round(float(final_reward), 2), "\n".join(feedback_lines)
