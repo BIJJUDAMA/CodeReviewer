@@ -2,7 +2,7 @@ import ast
 import re
 import sys
 import io
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any
 
 def extract_code_block(text: str) -> str:
     """Extracts the first python code block from a markdown string."""
@@ -12,34 +12,6 @@ def extract_code_block(text: str) -> str:
         return match.group(1).strip()
     return ""
 
-def check_syntax(code: str) -> Tuple[bool, str]:
-    """Verifies if the code is valid Python syntax."""
-    try:
-        ast.parse(code)
-        return True, ""
-    except Exception as e:
-        return False, str(e)
-
-def run_execution_test(code: str, ground_truth: dict) -> str:
-    """Simulates a test runner and returns stdout/stderr logs."""
-    test_cases = ground_truth.get("test_cases", [])
-    if not test_cases:
-        return "No tests defined for this snippet."
-    
-    results = run_tests(code, test_cases)
-    passed_count = sum(1 for r in results if r["passed"])
-    total = len(results)
-    
-    output = [f"Ran {total} tests. {passed_count} PASSED, {total - passed_count} FAILED."]
-    for i, res in enumerate(results):
-        if not res["passed"]:
-            if "error" in res:
-                output.append(f"Test {i+1} ERROR: {res['error']}")
-            else:
-                output.append(f"Test {i+1} FAILED: Expected {res['expected']}, got {res['actual']}")
-    
-    return "\n".join(output)
-
 def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Executes the provided code against test cases."""
     results = []
@@ -48,17 +20,21 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
         input_args = test.get("input_args", [])
         expected = test.get("expected_output")
         
+        # Capture stdout to prevent cluttering logs
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
         
         try:
-            # Find the function name
+            # We assume the code defines a function. 
+            # We'll exec the code and then call the function by name from the snippet.
+            # Heuristic: Find the first 'def function_name'
             def_match = re.search(r"def\s+([a-zA-Z_][a-zA-Z0-9_]*)", code)
             if not def_match:
                 raise ValueError("No function definition found in code block.")
             
             fn_name = def_match.group(1)
             
+            # Local namespace for execution
             local_vars = {}
             exec(code, local_vars, local_vars)
             
@@ -79,7 +55,7 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
         except Exception as e:
             results.append({
                 "passed": False,
-                "error": f"{type(e).__name__}: {str(e)}",
+                "error": str(e),
                 "input": input_args,
                 "expected": expected
             })
@@ -88,36 +64,43 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
             
     return results
 
-def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
+def score(agent_response: str, ground_truth: dict, step: int = 1) -> float:
     """
-    Grades a Suggest Fix task on SUBMIT.
-    Returns score strictly within (0.05, 0.95).
+    Grades a Suggest Fix task.
+    Provides tiered rewards:
+    - 20% for Syntax Integrity (is it valid Python?)
+    - 80% for Functional Correctness (passing test cases)
     """
-    if not is_submission:
-        return 0.05, ""
+    code = extract_code_block(agent_response)
+    if not code:
+        return 0.01
 
-    syntax_ok, syntax_err = check_syntax(working_code)
-    if not syntax_ok:
-        return 0.05, f"Submission Rejected: Syntax Error.\n{syntax_err}"
+    # 1. Syntax Integrity Reward (20% weight)
+    # Check if code is valid Python using AST
+    syntax_reward = 0.01
+    try:
+        ast.parse(code)
+        syntax_reward = 1.0
+    except:
+        pass
 
+    # 2. Functional Correctness (80% weight)
     test_cases = ground_truth.get("test_cases", [])
     if not test_cases:
-        return 0.7, "Submission Accepted: No tests required."
+        passed_ratio = 1.0 # Default if no tests
+    else:
+        results = run_tests(code, test_cases)
+        results_count = len(results)
+        if results_count == 0:
+            passed_ratio = 1.0
+        else:
+            passed_ratio = sum(1 for r in results if r["passed"]) / results_count
 
-    results = run_tests(working_code, test_cases)
-    passed_count = sum(1 for r in results if r["passed"])
-    passed_ratio = passed_count / len(results)
+    # Combine: 20% for syntax mastery, 80% for logical success
+    final_score = (0.2 * syntax_reward) + (0.8 * passed_ratio)
     
-    # 0.7 base for full resolution
-    final_reward = 0.7 * passed_ratio
+    # Scale based on step (incentivize faster fixes)
+    decay = max(0.5, 1 - 0.05 * (step - 1))
     
-    # Forgiving Step Decay
-    decay = max(0.5, 1 - 0.03 * max(0, step - 2))
-    final_reward *= decay
-
-    feedback = f"Final Submission Results: {passed_count}/{len(results)} tests passed."
-    if passed_ratio == 1.0:
-        feedback += " Excellent work!"
-    
-    # Strict (0.05, 0.95) clamping
-    return max(0.05, min(0.95, round(float(final_reward), 2))), feedback
+    # STRICT (0.01, 0.99) clamp
+    return max(0.01, min(0.99, round(final_score * decay, 2)))

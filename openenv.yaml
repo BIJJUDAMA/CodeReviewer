@@ -1,42 +1,41 @@
 name: code-review-env
-version: 1.1.0
+version: 1.0.0
 description: >
-  An advanced OpenEnv environment simulating a developer terminal. 
-  AI agents must investigate bugs, edit code, and verify fixes using tools
-  (RUN_TESTS, EDIT_CODE, SUBMIT) with dense reward signals.
+  An OpenEnv environment where an AI agent performs code review tasks
+  on Python snippets: identifying bugs, suggesting fixes, and writing
+  structured feedback.
 tasks:
   - name: identify-bug
     difficulty: easy
     max_steps: 4
-    reward_range: [0.05, 0.95]
+    reward_range: [0.01, 0.99]
   - name: suggest-fix
     difficulty: medium
     max_steps: 6
-    reward_range: [0.05, 0.95]
+    reward_range: [0.01, 0.99]
   - name: full-review
     difficulty: hard
     max_steps: 8
-    reward_range: [0.05, 0.95]
+    reward_range: [0.01, 0.99]
   - name: security-audit
     max_steps: 6
-    reward_range: [0.05, 0.95]
+    reward_range: [0.01, 0.99]
   - name: performance-refactor
     max_steps: 6
-    reward_range: [0.05, 0.95]
+    reward_range: [0.01, 0.99]
 action_space:
   type: text
-  description: Free-form string response from the agent (can be structured JSON for advanced tools)
+  description: Free-form string response from the agent
 observation_space:
   type: object
   fields:
-    - code_snippet: string (The current code in the editor)
+    - code_snippet: string
     - language: string
     - task_type: string
     - task_description: string
     - step_number: integer
     - max_steps: integer
     - context: string (optional)
-    - feedback: string (Terminal output / Feedback)
 endpoints:
   reset: POST /reset
   step: POST /step
