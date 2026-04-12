@@ -1,49 +1,41 @@
 import re
 import ast
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 from . import suggest_fix
 
-def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
+def score(agent_response: str, ground_truth: dict, step: int = 1) -> float:
     """
-    Grades a Performance Refactor task on SUBMIT.
-    Returns score strictly within (0.05, 0.95).
+    Grades a Performance Refactor task.
     """
-    if not is_submission:
-        return 0.05, ""
-
-    feedback_lines = []
+    response = agent_response.lower()
     
-    # 1. Performance Logic (0.2 weight)
-    logic_score = 0.05
+    # 1. Performance Logic (20%)
+    logic_score = 0.01
     performance_keywords = ground_truth.get("performance_keywords", ["complexity", "o(n)", "set", "dictionary"])
-    found_keywords = [kw for kw in performance_keywords if kw in working_code.lower()]
-    if found_keywords:
-        logic_score = 0.2 * (len(found_keywords) / len(performance_keywords))
-        feedback_lines.append(f"Analysis: Identified indicators.")
-    else:
-        feedback_lines.append("Analysis: Fails to mention optimization concepts.")
+    found_keywords = [kw for kw in performance_keywords if kw in response]
+    if performance_keywords:
+        logic_score = len(found_keywords) / len(performance_keywords)
         
-    # 2. Optimization Pattern Score (0.3 weight)
-    opt_score = 0.05
-    try:
+    # 2. Optimization Pattern (40%)
+    opt_score = 0.01
+    code_blocks = re.findall(r"```(?:python)?\s*(.*?)```", agent_response, re.DOTALL | re.IGNORECASE)
+    for code in code_blocks:
         mandatory = ground_truth.get("optimized_patterns", ["set(", "dict("])
-        has_optimized = any(pat in working_code for pat in mandatory)
-        if has_optimized:
-            opt_score = 0.3
-            feedback_lines.append("Pattern Review: Found efficient usage.")
-    except:
-        pass
+        if any(pat in code for pat in mandatory):
+            opt_score = 1.0
+            break
 
-    # 3. Functional Correctness (0.2 weight)
+    # 3. Functional Correctness (40%)
+    functional_score = 0.01
     test_cases = ground_truth.get("test_cases", [])
-    # Reuse suggest_fix code execution logic
-    results = suggest_fix.run_tests(suggest_fix.extract_code_block(working_code), test_cases)
-    passed_count = sum(1 for r in results if r["passed"])
-    functional_score = 0.2 * (passed_count / len(results) if results else 1.0)
-    feedback_lines.append(f"Verification: {passed_count}/{len(results)} tests passed.")
+    for code in code_blocks:
+        code_clean = suggest_fix.extract_code_block(code)
+        results = suggest_fix.run_tests(code_clean, test_cases)
+        if results:
+            passed_ratio = sum(1 for r in results if r["passed"]) / len(results)
+            functional_score = max(functional_score, passed_ratio)
 
-    final_reward = logic_score + opt_score + functional_score
+    final_score = (0.2 * logic_score) + (0.4 * opt_score) + (0.4 * functional_score)
     decay = max(0.5, 1 - 0.03 * max(0, step - 2))
-    final_reward *= decay
     
-    return max(0.05, min(0.95, round(float(final_reward), 2))), "\n".join(feedback_lines)
+    return max(0.01, min(0.99, round(float(final_score * decay), 2)))
