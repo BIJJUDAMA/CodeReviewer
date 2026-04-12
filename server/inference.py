@@ -148,8 +148,8 @@ async def run_task(client: AsyncOpenAI, env_factory: Any, task_type: str) -> flo
         if done: break
 
     # Episode Score: Use max(rewards) for RL convergence goal (Requirement 9)
-    # Clamp strictly within (0, 1) as required by the validator
-    task_score = max(0.01, min(0.99, max(rewards) if rewards else 0.01))
+    # Clamp strictly within (0.1, 0.9) as required by the validator
+    task_score = max(0.1, min(0.9, max(rewards) if rewards else 0.1))
     
     log_end(success=task_score >= SUCCESS_SCORE_THRESHOLD, steps=steps_taken, score=task_score, rewards=rewards)
     return task_score

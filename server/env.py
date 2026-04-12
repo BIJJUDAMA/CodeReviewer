@@ -128,9 +128,8 @@ class CodeReviewEnv:
                 self.state.done = True
                 self.state.status = "done"
 
-        # Final Score Clamping strictly within (0, 1)
-        # Using a slightly tighter margin to be safe
-        reward = max(0.01, min(0.99, float(reward)))
+
+        reward = max(0.1, min(0.9, float(reward)))
         
         self.state.rewards.append(reward)
         self.state.last_feedback = feedback

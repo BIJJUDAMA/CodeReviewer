@@ -8,21 +8,21 @@ tasks:
   - name: identify-bug
     difficulty: easy
     max_steps: 4
-    reward_range: [0.0, 1.0]
+    reward_range: [0.1, 0.9]
   - name: suggest-fix
     difficulty: medium
     max_steps: 6
-    reward_range: [0.0, 1.0]
+    reward_range: [0.1, 0.9]
   - name: full-review
     difficulty: hard
     max_steps: 8
-    reward_range: [0.0, 1.0]
+    reward_range: [0.1, 0.9]
   - name: security-audit
     max_steps: 6
-    reward_range: [0.0, 1.0]
+    reward_range: [0.1, 0.9]
   - name: performance-refactor
     max_steps: 6
-    reward_range: [0.0, 1.0]
+    reward_range: [0.1, 0.9]
 action_space:
   type: object
   fields:
