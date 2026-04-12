@@ -91,15 +91,14 @@ def run_tests(code: str, test_cases: List[Dict[str, Any]]) -> List[Dict[str, Any
 def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: bool = False) -> Tuple[float, str]:
     """
     Grades a Suggest Fix task on SUBMIT.
-    - 0.7 reward for full correctness on submission.
-    - Decays slightly for reasoning steps.
+    Returns score strictly within (0.01, 0.99).
     """
     if not is_submission:
-        return 0.0, ""
+        return 0.01, ""
 
     syntax_ok, syntax_err = check_syntax(working_code)
     if not syntax_ok:
-        return 0.0, f"Submission Rejected: Syntax Error.\n{syntax_err}"
+        return 0.01, f"Submission Rejected: Syntax Error.\n{syntax_err}"
 
     test_cases = ground_truth.get("test_cases", [])
     if not test_cases:
@@ -112,7 +111,7 @@ def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: b
     # 0.7 base for full resolution
     final_reward = 0.7 * passed_ratio
     
-    # Forgiving Step Decay: (max(0.5, 1 - 0.03 * max(0, step - 2)))
+    # Forgiving Step Decay
     decay = max(0.5, 1 - 0.03 * max(0, step - 2))
     final_reward *= decay
 
@@ -120,4 +119,5 @@ def score(working_code: str, ground_truth: dict, step: int = 1, is_submission: b
     if passed_ratio == 1.0:
         feedback += " Excellent work!"
     
-    return round(float(final_reward), 2), feedback
+    # Strict (0.01, 0.99) clamping
+    return max(0.01, min(0.99, round(float(final_reward), 2))), feedback

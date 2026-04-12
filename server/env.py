@@ -79,7 +79,7 @@ class CodeReviewEnv:
         if self.state.status != "running":
             raise ValueError("Environment not in running state. Call reset() first.")
 
-        reward = 0.0
+        reward = 0.01
         feedback = ""
         
         # 1. Handle Commands (Simulation logic)
@@ -112,8 +112,7 @@ class CodeReviewEnv:
                 "performance_refactor": performance_refactor
             }
             grader = grader_map.get(self.state.task_type)
-            # Full logic reward (+0.7) handled inside the grader
-            # Passing working_code instead of response for direct evaluation
+            
             reward_val, feedback_val = grader.score(
                 self.state.working_code, 
                 self.state.current_snippet, 
@@ -123,13 +122,13 @@ class CodeReviewEnv:
             reward += reward_val
             feedback = feedback_val
             
-            # Termination logic (SUBMIT always ends or reaches max reward)
+            # Termination logic
             if reward >= 0.95 or self.state.step_number >= self.state.max_steps:
                 self.state.done = True
                 self.state.status = "done"
 
-
-        reward = max(0.1, min(0.9, float(reward)))
+        # FINAL STRICT CLAMPING within (0.01, 0.99)
+        reward = max(0.01, min(0.99, float(reward)))
         
         self.state.rewards.append(reward)
         self.state.last_feedback = feedback
